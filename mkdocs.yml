@@ -1,0 +1,39 @@
+site_name: ISEA Battery Revenue Index
+site_url: "https://battery-revenue-index.pages.rwth-aachen.de/"
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+nav:
+  - Home: index.md
+  - Methodology:
+    - Single Markets:
+      - FCR: methodology/single_markets/fcr.md
+      - aFRR: methodology/single_markets/afrr.md
+      - Wholesale: methodology/single_markets/wholesale.md
+      - Intraday Continous: methodology/single_markets/idc.md
+    - Cross Market: methodology/cross_market/cross_market.md
+  - Code:
+    - Markets:
+      - FCR: code/markets/fcr.md
+      - aFRR: code/markets/afrr.md
+      - Wholesale (ID1&IDA): code/markets/wholesale.md
+      - Intraday Continous: code/markets/idc.md
+  - About: about.md
+
+theme:
+  name: material
+  logo: "assets/isea_logo.png"
+  favicon: "assets/isea_logo.png"
+docs_dir: docs  # Ensure this points to the correct directory for your markdown files.
+
+markdown_extensions:
+  - pymdownx.arithmatex:
+      generic: true
+  - attr_list
+extra_javascript:
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js

@@ -1,0 +1,10 @@
+*.svg
+*.png
+*.html
+*.json
+*.pyc
+*.csv
+*.xml
+**/results
+**/marketdata
+site/

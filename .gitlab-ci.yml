@@ -1,0 +1,13 @@
+pages:
+  tags: 
+    - docs update
+  script:
+    #- echo "Changing diectory to C:\git_battery_revenue_index"
+    #- cd C:\git\battery_revenue_index  # Use backslashes for Windows paths
+    - mkdocs build --site-dir public
+  artifacts:
+    paths:
+      # The folder that contains the files to be exposed at the Page URL
+      - public
+  only:
+    - main  # or your default branch
