@@ -1,5 +1,10 @@
-import pandas as pd
 import os
+
+import numpy as np
+import pandas as pd
+
+# Set BRI_VERBOSE_TRADES=1 to print each accepted trade and spread stop messages.
+_VERBOSE_TRADES = os.environ.get("BRI_VERBOSE_TRADES", "").lower() in ("1", "true", "yes")
 
 
 """
@@ -376,50 +381,29 @@ class WholesaleMarket:
         # # turn the prices into a series
         prices = prices.squeeze()
 
-        # Calculate the price spreads
-        price_spreads = pd.DataFrame(columns=["spread", "t_buy", "t_sell"])
-
-        for t_sell in prices.index:
-            for t_buy in prices.index:
-                spread = prices[t_sell] - prices[t_buy]
-                t_buy = t_buy
-                t_sell = t_sell
-
-                price_spreads = pd.concat(
-                    [
-                        price_spreads,
-                        pd.DataFrame(
-                            {
-                                "spread": spread,
-                                "t_buy": t_buy,
-                                "t_sell": t_sell,
-                                "p_buy": prices[t_buy],
-                                "p_sell": prices[t_sell],
-                            },
-                            index=[0],
-                        ),
-                    ],
-                    ignore_index=True,
-                )
-        # sort the price spreads
-        price_spreads = price_spreads.sort_values(by="spread", ascending=False)
+        # Price spreads: p_sell - p_buy for all (sell, buy) pairs (same ordering as legacy loops).
+        price_idx = prices.index
+        p = np.asarray(prices.values, dtype=np.float64).reshape(-1)
+        n = len(p)
+        spread_mat = p.reshape(-1, 1) - p.reshape(1, -1)
+        ii, jj = np.meshgrid(np.arange(n), np.arange(n), indexing="ij")
+        price_spreads = pd.DataFrame(
+            {
+                "spread": spread_mat.ravel(),
+                "t_sell": price_idx[ii.ravel()],
+                "t_buy": price_idx[jj.ravel()],
+                "p_sell": p[ii.ravel()],
+                "p_buy": p[jj.ravel()],
+            }
+        )
+        price_spreads = price_spreads.sort_values(by="spread", ascending=False).reset_index(
+            drop=True
+        )
 
         # 3) FIND THE BEST PRICE SPREADS THAT MEET CERTAIN CONDITIONS -------------------------------------------
 
         # find the best price spreads that meet certain conditions
-        executed_trades = pd.DataFrame(
-            columns=[
-                "spread",
-                "t_buy",
-                "t_sell",
-                "p_buy",
-                "p_sell",
-                "costs",
-                "revenue",
-                "profit",
-            ]
-        )
-        order_book = pd.DataFrame(columns=["price", "t_exec", "type", "volume"])
+        executed_rows = []
 
         # Extend the index to include the first timestep of the next day
         last_time = prices.index[-1]
@@ -428,7 +412,9 @@ class WholesaleMarket:
         )
 
         # Create a new index that includes all original times plus the first hour of the next day
-        extended_index = prices.index.append(pd.Index([next_day_first_timestep]))
+        extended_index = pd.DatetimeIndex(
+            list(prices.index) + [next_day_first_timestep]
+        )
 
         if soc_input is None:
             soc = pd.Series(index=extended_index, data=start_soc)
@@ -441,9 +427,11 @@ class WholesaleMarket:
 
             # Contition A) check if price spread is higher than marginal costs
             if price_spreads.iloc[i]["spread"] < marginal_cost_per_trade:
-                print(
-                    f"No profitable trades left. Last spread nr {i - 1} with value {price_spreads.iloc[i - 1]['spread']}"
-                )
+                if _VERBOSE_TRADES and i > 0:
+                    print(
+                        "No profitable trades left. Last spread nr "
+                        f"{i - 1} with value {price_spreads.iloc[i - 1]['spread']}"
+                    )
                 break
 
             t_buy = price_spreads.iloc[i]["t_buy"]
@@ -519,7 +507,7 @@ class WholesaleMarket:
             neg_soc_changes = soc_temp.diff()[soc_temp.diff() < 0].sum()
             if soc_temp[0] < start_soc:
                 neg_soc_changes -= start_soc - soc_temp[0]
-            if pos_soc_changes - neg_soc_changes * -1 > 0.01:
+            if pos_soc_changes - neg_soc_changes * -1 > 0.01 and _VERBOSE_TRADES:
                 print(
                     f"Number of positive soc changes: {pos_soc_changes} and negative soc changes: {neg_soc_changes}"
                 )
@@ -556,59 +544,44 @@ class WholesaleMarket:
             # execute the trade
             soc = soc_temp.copy()
 
-            order_book = pd.concat(
-                [
-                    order_book,
-                    pd.DataFrame(
-                        {
-                            "price": [price_spreads.iloc[i]["p_buy"]],
-                            "t_exec": [t_buy],
-                            "type": ["buy"],
-                        }
-                    ),
-                ],
-                ignore_index=True,
-            )
-            order_book = pd.concat(
-                [
-                    order_book,
-                    pd.DataFrame(
-                        {
-                            "price": [price_spreads.iloc[i]["p_sell"]],
-                            "t_exec": [t_sell],
-                            "type": ["sell"],
-                        }
-                    ),
-                ],
-                ignore_index=True,
-            )
-            order_book = order_book.sort_values(by="t_exec")
-
             # calculate how many consecutive "buy" trades there are in executed_trades
             revenue = trade_volume_sell * price_spreads.iloc[i]["p_sell"]
             costs = trade_volume_buy * price_spreads.iloc[i]["p_buy"]
             profit = revenue - costs
             daily_profit += profit
 
-            new_executed_trades = pd.DataFrame(
+            executed_rows.append(
                 {
-                    "spread": [price_spreads.iloc[i]["spread"]],
-                    "t_buy": [t_buy],
-                    "t_sell": [t_sell],
-                    "p_buy": [price_spreads.iloc[i]["p_buy"]],
-                    "p_sell": [price_spreads.iloc[i]["p_sell"]],
-                    "revenue": [revenue],
-                    "costs": [costs],
-                    "profit": [profit],
-                },
-                index=[0],
+                    "spread": price_spreads.iloc[i]["spread"],
+                    "t_buy": t_buy,
+                    "t_sell": t_sell,
+                    "p_buy": price_spreads.iloc[i]["p_buy"],
+                    "p_sell": price_spreads.iloc[i]["p_sell"],
+                    "revenue": revenue,
+                    "costs": costs,
+                    "profit": profit,
+                }
             )
 
-            executed_trades = pd.concat(
-                [executed_trades, new_executed_trades], ignore_index=True
-            )
+            if _VERBOSE_TRADES:
+                print(f"Trade executed at BUY: {t_buy} and SELL: {t_sell}")
 
-            print(f"Trade executed at BUY: {t_buy} and SELL: {t_sell}")
+        executed_trades = (
+            pd.DataFrame(executed_rows)
+            if executed_rows
+            else pd.DataFrame(
+                columns=[
+                    "spread",
+                    "t_buy",
+                    "t_sell",
+                    "p_buy",
+                    "p_sell",
+                    "costs",
+                    "revenue",
+                    "profit",
+                ]
+            )
+        )
 
         result_df = self.get_buy_sell_data(
             prices.index, executed_trades, trade_volume_sell, trade_volume_buy

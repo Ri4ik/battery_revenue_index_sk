@@ -6,17 +6,47 @@ import traceback
 import pandas as pd
 
 import analysismodes.single_market_analysis as sm
+from tools.slovakia_run_common import (
+    day_outputs_complete,
+    parse_slovakia_run_args,
+    resolve_result_folder_multi,
+)
+from tools.validate_marketdata import validate_required_marketdata
 
 
 if __name__ == "__main__":
+    args, _ = parse_slovakia_run_args(
+        "Slovakia single-market benchmark (DA, IDA1, ID1, IMB, FCR, aFRR)"
+    )
+    if args.resume and args.result_folder and args.resume_parent:
+        raise SystemExit("Use either --result-folder OR --resume-parent with --resume, not both.")
+    if args.resume and not args.result_folder and not args.resume_parent:
+        raise SystemExit("--resume requires --resume-parent <base> (paths ..._E_C per combo).")
+    if args.result_folder and not args.resume:
+        raise SystemExit("--result-folder is only used together with --resume.")
+
+    start_day = args.start_day or "2025-03-01"
+    end_day = args.end_day or "2026-03-01"
+
+    day_list = (
+        pd.date_range(start=start_day, end=end_day, freq="D")
+        .strftime("%Y-%m-%d")
+        .tolist()
+    )
+    validate_required_marketdata(
+        workspace=".",
+        day_list=day_list,
+        markets=["DA", "ID1", "IDA1", "IMB"],
+    )
+
+    current_date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+
     # Simplified Slovak benchmark:
     # DA + IDA1 + ID1 + IMB + FCR + aFRR Capacity
     # (aFRR Energy and IDC are intentionally excluded in this first phase)
     for energy in [1, 2]:
         for cycles in [1, 2]:
             parallel = False
-            start_day = "2025-03-01"
-            end_day = "2025-03-01"
             market_list = ["DA", "IDA1", "ID1", "IMB", "FCR", "aFRR"]
 
             battery_config = {
@@ -70,8 +100,6 @@ if __name__ == "__main__":
                     "capture_rate": 1,
                     "capacity_share": 1,
                 },
-                # For the simplified model, we keep aFRR energy logic switched off
-                # by setting near-zero marketable participation.
                 "aFRR Energy": {
                     "t_delivery": 0.25,
                     "power_share": 0.0001,
@@ -93,34 +121,33 @@ if __name__ == "__main__":
             )
             battery_config["aging_costs"] = aging_costs
 
-            day_list = (
-                pd.date_range(start=start_day, end=end_day, freq="D")
-                .strftime("%Y-%m-%d")
-                .tolist()
-            )
-
-            current_date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-            result_folder = os.path.join(
-                "results",
-                f"Slovakia_SingleMarket_results_{current_date}_{energy}_{cycles}",
+            result_folder = resolve_result_folder_multi(
+                energy=energy,
+                cycles=cycles,
+                current_date=current_date,
+                resume=args.resume,
+                resume_parent=args.resume_parent,
             )
             os.makedirs(result_folder, exist_ok=True)
 
             if parallel:
                 raise NotImplementedError("Parallel mode is disabled in this config.")
-            else:
-                for day in day_list:
-                    battery_config_copy = copy.deepcopy(battery_config)
-                    try:
-                        sm.process_day(
-                            day,
-                            battery_config_copy,
-                            market_config,
-                            result_folder,
-                            market_list,
-                        )
-                    except Exception as e:
-                        print(f"Error for day {day}")
-                        print(e)
-                        print(traceback.format_exc())
-                        continue
+
+            for day in day_list:
+                if args.resume and day_outputs_complete(result_folder, day, market_list):
+                    print(f"Skip {energy}h/{cycles}c (cached): {day}")
+                    continue
+                battery_config_copy = copy.deepcopy(battery_config)
+                try:
+                    sm.process_day(
+                        day,
+                        battery_config_copy,
+                        market_config,
+                        result_folder,
+                        market_list,
+                    )
+                except Exception as e:
+                    print(f"Error for day {day}")
+                    print(e)
+                    print(traceback.format_exc())
+                    continue

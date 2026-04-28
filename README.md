@@ -93,6 +93,23 @@ If your source uses different header names, pass them explicitly (for example `-
 python calculation_config_slovakia.py
 ```
 
+### One-command Slovak import (Windows / PowerShell)
+
+```powershell
+./run_slovakia_import.ps1
+```
+
+This imports:
+- DA + IDM(15m) exports from your local files,
+- IMB from OKTE `SystemImbalance` API,
+- Demand/Supply Balance from OKTE API.
+
+If you ever need the old IMB proxy fallback from IDM, use:
+
+```bash
+./.venv/Scripts/python.exe tools/import_okte_exports.py --workspace . --idm-15min "<path-to-15min.csv>" --use-idm-as-imb-proxy
+```
+
 ## Licensing
 
 This project is licensed under the GNU General Public License. See the `LICENSE` file for details.
