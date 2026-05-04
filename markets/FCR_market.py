@@ -1,5 +1,12 @@
-import pandas as pd
 import os
+
+import pandas as pd
+
+from markets.price_column_names import (
+    FCR_SETTLEMENT,
+    FCR_SETTLEMENT_LEGACY,
+    series_from_columns,
+)
 
 
 class FCRmarket:
@@ -38,13 +45,17 @@ class FCRmarket:
         file_path = os.path.join(folder_path, f"FCR_{day}.csv")
         try:
             fcr_data = pd.read_csv(file_path, index_col=0, parse_dates=True)
-            fcr_prices_ger = fcr_data["GERMANY_SETTLEMENTCAPACITY_PRICE_[EUR/MW]"]
+            fcr_prices_ger = series_from_columns(
+                fcr_data, FCR_SETTLEMENT, FCR_SETTLEMENT_LEGACY
+            )
         except FileNotFoundError:
             print(f"File {file_path} not found.")
             print("Trying to download the data from the database instead...")
             try:
                 fcr_data = db.get_fcr_prices(day)
-                fcr_prices_ger = fcr_data["GERMANY_SETTLEMENTCAPACITY_PRICE_[EUR/MW]"]
+                fcr_prices_ger = series_from_columns(
+                    fcr_data, FCR_SETTLEMENT, FCR_SETTLEMENT_LEGACY
+                )
                 fcr_prices_ger.index = pd.to_datetime(fcr_prices_ger.index)
                 os.makedirs(folder_path, exist_ok=True)
                 fcr_prices_ger.to_csv(file_path)
@@ -67,7 +78,9 @@ class FCRmarket:
         # read xlsx file as downloaded from website
         fcr_data = db.get_fcr_prices(day)
         # fcr_data = all_fcr_data[all_fcr_data['TENDER_NUMBER']==1]
-        fcr_prices_ger = fcr_data["GERMANY_SETTLEMENTCAPACITY_PRICE_[EUR/MW]"]
+        fcr_prices_ger = series_from_columns(
+            fcr_data, FCR_SETTLEMENT, FCR_SETTLEMENT_LEGACY
+        )
 
         # convert day to datetime
         day = pd.to_datetime(day)

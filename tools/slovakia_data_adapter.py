@@ -1,8 +1,15 @@
 import argparse
 import os
+import sys
 from pathlib import Path
 
 import pandas as pd
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from markets.price_column_names import AFRR_CAPACITY, FCR_SETTLEMENT
 
 
 EXPECTED = {
@@ -78,7 +85,7 @@ def convert_fcr(raw_file: Path, output_base: Path, day: str, price_col: str):
     out = pd.DataFrame(
         {
             "DATE_FROM": [day] * len(fcr_prices),
-            "GERMANY_SETTLEMENTCAPACITY_PRICE_[EUR/MW]": fcr_prices.values,
+            FCR_SETTLEMENT: fcr_prices.values,
         }
     )
     out_file = _ensure_output_dir(output_base, "FCR") / f"FCR_{day}.csv"
@@ -95,11 +102,9 @@ def convert_afrr_capacity(
 ):
     df = pd.read_csv(raw_file) if raw_file.suffix.lower() == ".csv" else pd.read_excel(raw_file)
     tmp = df[[product_col, price_col]].copy()
-    tmp.columns = ["PRODUCT", "GERMANY_AVERAGE_CAPACITY_PRICE_[(EUR/MW)/h]"]
+    tmp.columns = ["PRODUCT", AFRR_CAPACITY]
     tmp["PRODUCT"] = tmp["PRODUCT"].astype(str)
-    tmp["GERMANY_AVERAGE_CAPACITY_PRICE_[(EUR/MW)/h]"] = pd.to_numeric(
-        tmp["GERMANY_AVERAGE_CAPACITY_PRICE_[(EUR/MW)/h]"], errors="coerce"
-    )
+    tmp[AFRR_CAPACITY] = pd.to_numeric(tmp[AFRR_CAPACITY], errors="coerce")
     tmp = tmp.dropna()
     tmp = tmp[tmp["PRODUCT"].str.contains("POS|NEG", case=False, regex=True)]
     tmp = tmp.head(12).reset_index(drop=True)
@@ -113,7 +118,7 @@ def convert_afrr_capacity(
             "DATE_TO",
             "TYPE_OF_RESERVES",
             "PRODUCT",
-            "GERMANY_AVERAGE_CAPACITY_PRICE_[(EUR/MW)/h]",
+            AFRR_CAPACITY,
         ]
     ]
     out_file = _ensure_output_dir(output_base, "aFRR_capacity") / f"afrr_capacity_{day}.csv"

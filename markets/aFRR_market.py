@@ -1,7 +1,16 @@
-import pandas as pd
 import os
 from datetime import datetime, timedelta
+
 import numpy as np
+import pandas as pd
+
+from markets.price_column_names import (
+    AFRR_CAPACITY,
+    AFRR_CAPACITY_LEGACY,
+    AFRR_SETPOINT,
+    AFRR_SETPOINT_LEGACY,
+    series_from_columns,
+)
 
 
 class aFRRmarket:
@@ -172,18 +181,20 @@ class aFRRmarket:
             all_afrr_data = db.get_afrr_capacity_prices(day)
             os.makedirs(folder_path, exist_ok=True)
             all_afrr_data.to_csv(file_path)
-        afrr_prices_ger = all_afrr_data["GERMANY_AVERAGE_CAPACITY_PRICE_[(EUR/MW)/h]"]
+        _cap_col = next(
+            c for c in (AFRR_CAPACITY, AFRR_CAPACITY_LEGACY) if c in all_afrr_data.columns
+        )
 
         # convert index to datetime
-        afrr_prices_ger.index = pd.to_datetime(afrr_prices_ger.index)
+        all_afrr_data.index = pd.to_datetime(all_afrr_data.index)
 
         self.capacity_prices = pd.DataFrame(index=range(6), columns=["POS", "NEG"])
         self.capacity_prices["POS"] = all_afrr_data[
             all_afrr_data["PRODUCT"].str.contains("POS")
-        ]["GERMANY_AVERAGE_CAPACITY_PRICE_[(EUR/MW)/h]"].values
+        ][_cap_col].values
         self.capacity_prices["NEG"] = all_afrr_data[
             all_afrr_data["PRODUCT"].str.contains("NEG")
-        ]["GERMANY_AVERAGE_CAPACITY_PRICE_[(EUR/MW)/h]"].values
+        ][_cap_col].values
 
     def calculate_afrr_capacity_revenue(self, market_config):
         """
@@ -609,7 +620,9 @@ class aFRRmarket:
                 all_afrr_activation_data["datetime"], format="%Y-%m-%d %H:%M:%S"
             )
 
-            activated_power = all_afrr_activation_data["GERMANY_aFRR_SETPOINT_[MW]"]
+            activated_power = series_from_columns(
+                all_afrr_activation_data, AFRR_SETPOINT, AFRR_SETPOINT_LEGACY
+            )
 
             # save locally so we don't have to call db every time
             os.makedirs(activation_path, exist_ok=True)
@@ -623,7 +636,9 @@ class aFRRmarket:
                 activated_power["datetime"], format="%Y-%m-%d %H:%M:%S"
             )
 
-            self.activated_power = activated_power["GERMANY_aFRR_SETPOINT_[MW]"]
+            self.activated_power = series_from_columns(
+                activated_power, AFRR_SETPOINT, AFRR_SETPOINT_LEGACY
+            )
 
     def calculate_afrr_energy_revenue(
         self, day, daily_results, battery_config, market_config
