@@ -1,0 +1,50 @@
+{
+  "1": {
+    "energy": 1,
+    "power": 1,
+    "cycle_limit": 1,
+    "service_life": 10,
+    "efficiency": 0.95,
+    "maxSOC": 1,
+    "minSOC":0,
+    "startSOC": 0.5,
+    "DoD": 1,
+    "costs": 250
+  },
+  "2": {
+    "energy": 1,
+    "power": 1,
+    "cycle_limit": 2,
+    "service_life": 10,
+    "efficiency": 0.95,
+    "maxSOC": 1,
+    "minSOC":0,
+    "startSOC": 0.5,
+    "DoD": 1,
+    "costs": 250
+  },
+  "3": {
+    "energy": 2,
+    "power": 1,
+    "cycle_limit": 1,
+    "service_life": 10,
+    "efficiency": 0.95,
+    "maxSOC": 1,
+    "minSOC":0,
+    "startSOC": 0.5,
+    "DoD": 1,
+    "costs": 250
+  },
+  "4": {
+    "energy": 2,
+    "power": 1,
+    "cycle_limit": 2,
+    "service_life": 10,
+    "efficiency": 0.95,
+    "maxSOC": 1,
+    "minSOC":0,
+    "startSOC": 0.5,
+    "DoD": 1,
+    "costs": 250
+  }
+}
