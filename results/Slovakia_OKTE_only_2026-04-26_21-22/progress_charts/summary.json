@@ -1,0 +1,13 @@
+{
+  "days_count": 10,
+  "from_day": "2025-03-01",
+  "to_day": "2025-03-10",
+  "total_revenue_eur": 7919.907007236841,
+  "average_daily_revenue_eur": 791.9907007236841,
+  "markets": [
+    "DA",
+    "ID1",
+    "IDA1",
+    "IMB"
+  ]
+}
