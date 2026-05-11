@@ -7,25 +7,136 @@ Run from repository root:
 Then open http://127.0.0.1:5050/ in a browser.
 """
 
+import copy
 import json
 import os
 import re
 import sys
+import traceback
 import webbrowser
-from datetime import date, datetime as dt_datetime
+from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote_plus, unquote_plus
 from threading import Timer
-from typing import Dict, List, Optional, Tuple
-
-import pandas as pd
-import plotly.graph_objects as go
-from flask import Flask, redirect, render_template_string, request, url_for
+from typing import Any, Dict, List, Optional, Tuple
 
 _REPO = Path(__file__).resolve().parent.parent
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
+import pandas as pd
+import plotly.graph_objects as go
+from flask import Flask, redirect, render_template_string, request, url_for
+
+import analysismodes.single_market_analysis as sm
+from tools.validate_marketdata import validate_required_marketdata
+
 RESULT_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_results_([A-Za-z0-9+]+)\.json$")
+
+OKTE_MARKET_LIST = ["DA", "IDA1", "ID1", "IMB"]
+
+DEFAULT_OKTE_MARKET_CONFIG = {
+    "DA": {"t_delivery": 1, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
+    "IDA1": {"t_delivery": 0.25, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
+    "ID1": {"t_delivery": 0.25, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
+    "IMB": {"t_delivery": 0.25, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
+}
+
+DEFAULT_OKTE_BATTERY = {
+    "energy": 1,
+    "power": 1,
+    "cycle_limit": 1,
+    "service_life": 10,
+    "efficiency": 0.95,
+    "maxSOC": 1,
+    "minSOC": 0,
+    "startSOC": 0.5,
+    "DoD": 1,
+    "costs": 250,
+}
+
+
+def _parse_float(val: Any, default: float, lo: float, hi: float) -> float:
+    try:
+        x = float(val)
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, x))
+
+
+def _parse_int(val: Any, default: int, lo: int, hi: int) -> int:
+    try:
+        x = int(float(val))
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, x))
+
+
+def battery_config_from_form(form) -> Dict[str, Any]:
+    """Build battery_config like calculation_config_slovakia_okte_only.py."""
+    b = copy.deepcopy(DEFAULT_OKTE_BATTERY)
+    b["energy"] = _parse_float(form.get("b_energy"), b["energy"], 0.25, 24.0)
+    b["power"] = _parse_float(form.get("b_power"), b["power"], 0.1, 50.0)
+    b["cycle_limit"] = _parse_int(form.get("b_cycle_limit"), b["cycle_limit"], 1, 10)
+    b["service_life"] = _parse_int(form.get("b_service_life"), b["service_life"], 1, 40)
+    b["efficiency"] = _parse_float(form.get("b_efficiency"), b["efficiency"], 0.5, 1.0)
+    b["maxSOC"] = _parse_float(form.get("b_maxSOC"), b["maxSOC"], 0.0, 1.0)
+    b["minSOC"] = _parse_float(form.get("b_minSOC"), b["minSOC"], 0.0, 1.0)
+    b["startSOC"] = _parse_float(form.get("b_startSOC"), b["startSOC"], 0.0, 1.0)
+    b["DoD"] = _parse_float(form.get("b_DoD"), b["DoD"], 0.1, 1.0)
+    b["costs"] = _parse_float(form.get("b_costs"), b["costs"], 0.0, 2000.0)
+    if b["minSOC"] >= b["maxSOC"]:
+        b["minSOC"], b["maxSOC"] = 0.0, 1.0
+    b["aging_costs"] = (
+        b["costs"] * 1000 / (b["service_life"] * b["cycle_limit"] * 365)
+    )
+    return b
+
+
+def battery_form_defaults_from_request() -> Dict[str, Any]:
+    """Defaults for HTML inputs: query string overrides, else OKTE defaults."""
+    b = copy.deepcopy(DEFAULT_OKTE_BATTERY)
+    if request.args.get("b_energy") is not None:
+        b["energy"] = _parse_float(request.args.get("b_energy"), b["energy"], 0.25, 24.0)
+    if request.args.get("b_power") is not None:
+        b["power"] = _parse_float(request.args.get("b_power"), b["power"], 0.1, 50.0)
+    if request.args.get("b_cycle_limit") is not None:
+        b["cycle_limit"] = _parse_int(request.args.get("b_cycle_limit"), b["cycle_limit"], 1, 10)
+    if request.args.get("b_service_life") is not None:
+        b["service_life"] = _parse_int(request.args.get("b_service_life"), b["service_life"], 1, 40)
+    if request.args.get("b_efficiency") is not None:
+        b["efficiency"] = _parse_float(request.args.get("b_efficiency"), b["efficiency"], 0.5, 1.0)
+    if request.args.get("b_maxSOC") is not None:
+        b["maxSOC"] = _parse_float(request.args.get("b_maxSOC"), b["maxSOC"], 0.0, 1.0)
+    if request.args.get("b_minSOC") is not None:
+        b["minSOC"] = _parse_float(request.args.get("b_minSOC"), b["minSOC"], 0.0, 1.0)
+    if request.args.get("b_startSOC") is not None:
+        b["startSOC"] = _parse_float(request.args.get("b_startSOC"), b["startSOC"], 0.0, 1.0)
+    if request.args.get("b_DoD") is not None:
+        b["DoD"] = _parse_float(request.args.get("b_DoD"), b["DoD"], 0.1, 1.0)
+    if request.args.get("b_costs") is not None:
+        b["costs"] = _parse_float(request.args.get("b_costs"), b["costs"], 0.0, 2000.0)
+    return b
+
+
+MAX_RECALC_DAYS = 366
+VALIDATION_MARKETS = ["DA", "ID1", "IDA1", "IMB"]
+
+
+def battery_query_string_args(b: Dict[str, Any]) -> Dict[str, str]:
+    """Query params to preserve battery form after redirect."""
+    return {
+        "b_energy": str(b["energy"]),
+        "b_power": str(b["power"]),
+        "b_cycle_limit": str(b["cycle_limit"]),
+        "b_service_life": str(b["service_life"]),
+        "b_efficiency": str(b["efficiency"]),
+        "b_maxSOC": str(b["maxSOC"]),
+        "b_minSOC": str(b["minSOC"]),
+        "b_startSOC": str(b["startSOC"]),
+        "b_DoD": str(b["DoD"]),
+        "b_costs": str(b["costs"]),
+    }
 
 
 def discover_result_roots(results_dir: Path) -> List[Path]:
@@ -297,6 +408,22 @@ PAGE = """
       font-size: 13px;
       border: 1px solid #d7e5f4;
     }
+    .controls-battery { padding: 18px 20px; margin-bottom: 18px; }
+    .battery-title { font-size: 18px; font-weight: 800; margin: 0 0 8px; color: var(--text); }
+    .battery-note { font-size: 12px; color: var(--muted); margin: 0 0 14px; line-height: 1.45; }
+    .battery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 12px; align-items: end; margin-bottom: 12px; }
+    .control-group input[type="number"] {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid #bcd0e4;
+      background: #f8fbff;
+      color: #13395e;
+      min-height: 38px;
+      padding: 8px 12px;
+      font-weight: 600;
+    }
+    .recalc-err-card { padding: 14px 18px; margin-bottom: 18px; background: #fef2f2; border: 1px solid #f5c2c2; }
+    .recalc-err { margin: 0; white-space: pre-wrap; font-family: inherit; font-size: 13px; color: #7a1f1f; }
     .chart-wrap { padding: 12px 14px; margin-bottom: 18px; }
     table { border-collapse: collapse; margin-top: 1rem; width: 100%; background: #fff; border-radius: 12px; overflow: hidden; }
     th, td { border: 1px solid #e7edf5; padding: 0.45rem 0.7rem; text-align: right; }
@@ -402,6 +529,77 @@ PAGE = """
       </form>
     </section>
 
+    {% if recalc_error %}
+    <section class="card recalc-err-card">
+      <pre class="recalc-err">{{ recalc_error|e }}</pre>
+    </section>
+    {% endif %}
+
+    <section class="card controls-battery">
+      <h2 class="battery-title">Parametre batérie a prepočet</h2>
+      <p class="battery-note">
+        Predvolené hodnoty zodpovedajú skriptu <code>calculation_config_slovakia_okte_only.py</code>.
+        Po spustení sa vytvorí nový priečinok v <code>results/</code> (trhy DA, IDA1, ID1, IMB).
+        Naraz najviac <strong>{{ max_recalc_days }}</strong> dní — na dlhšie obdobia použite skript s <code>--workers</code>.
+      </p>
+      <form method="post" action="{{ url_recalculate }}">
+        <div class="battery-grid">
+          <div class="control-group">
+            <label>Energia (MWh)</label>
+            <input type="number" name="b_energy" step="any" min="0.25" max="24" value="{{ bd.energy }}"/>
+          </div>
+          <div class="control-group">
+            <label>Výkon (MW)</label>
+            <input type="number" name="b_power" step="any" min="0.1" max="50" value="{{ bd.power }}"/>
+          </div>
+          <div class="control-group">
+            <label>Limit cyklov / deň</label>
+            <input type="number" name="b_cycle_limit" step="1" min="1" max="10" value="{{ bd.cycle_limit }}"/>
+          </div>
+          <div class="control-group">
+            <label>Životnosť (roky)</label>
+            <input type="number" name="b_service_life" step="1" min="1" max="40" value="{{ bd.service_life }}"/>
+          </div>
+          <div class="control-group">
+            <label>Účinnosť (0–1)</label>
+            <input type="number" name="b_efficiency" step="any" min="0.5" max="1" value="{{ bd.efficiency }}"/>
+          </div>
+          <div class="control-group">
+            <label>maxSOC</label>
+            <input type="number" name="b_maxSOC" step="any" min="0" max="1" value="{{ bd.maxSOC }}"/>
+          </div>
+          <div class="control-group">
+            <label>minSOC</label>
+            <input type="number" name="b_minSOC" step="any" min="0" max="1" value="{{ bd.minSOC }}"/>
+          </div>
+          <div class="control-group">
+            <label>startSOC</label>
+            <input type="number" name="b_startSOC" step="any" min="0" max="1" value="{{ bd.startSOC }}"/>
+          </div>
+          <div class="control-group">
+            <label>DoD</label>
+            <input type="number" name="b_DoD" step="any" min="0.1" max="1" value="{{ bd['DoD'] }}"/>
+          </div>
+          <div class="control-group">
+            <label>costs (ako v skripte)</label>
+            <input type="number" name="b_costs" step="any" min="0" max="2000" value="{{ bd.costs }}"/>
+          </div>
+          <div class="control-group">
+            <label>Prepočet od</label>
+            <input type="date" name="rec_start" value="{{ start }}"/>
+          </div>
+          <div class="control-group">
+            <label>Prepočet do</label>
+            <input type="date" name="rec_end" value="{{ end }}"/>
+          </div>
+        </div>
+        <div class="actions">
+          <button type="submit">Spustiť prepočet</button>
+          <span class="link">Prebehne v tomto procese (bez paralelizácie); pri veľkom rozsahu očakávaj čakanie.</span>
+        </div>
+      </form>
+    </section>
+
     <section class="card chart-wrap">
       {{ chart_html|safe }}
     </section>
@@ -459,8 +657,8 @@ def create_app(repo: Path) -> Flask:
         start_s = request.args.get("start") or dmin.isoformat()
         end_s = request.args.get("end") or dmax.isoformat()
         try:
-            start_d = dt_datetime.strptime(start_s, "%Y-%m-%d").date()
-            end_d = dt_datetime.strptime(end_s, "%Y-%m-%d").date()
+            start_d = datetime.strptime(start_s, "%Y-%m-%d").date()
+            end_d = datetime.strptime(end_s, "%Y-%m-%d").date()
         except ValueError:
             start_d, end_d = dmin, dmax
 
@@ -492,9 +690,14 @@ def create_app(repo: Path) -> Flask:
         summary = sub.groupby("market")["daily_revenue_eur"].sum().sort_values(ascending=False)
         summary_rows = [(m, float(v)) for m, v in summary.items()]
 
+        bd = battery_form_defaults_from_request()
+        rec_err_raw = request.args.get("recalc_error") or ""
+        recalc_error = unquote_plus(rec_err_raw) if rec_err_raw else ""
+
         return render_template_string(
             PAGE,
             url=request.path,
+            url_recalculate=url_for("recalculate"),
             folder_names=folder_names,
             folder=folder,
             start=start_d.isoformat(),
@@ -510,7 +713,86 @@ def create_app(repo: Path) -> Flask:
             summary_rows=summary_rows,
             data_min=dmin.isoformat(),
             data_max=dmax.isoformat(),
+            bd=bd,
+            recalc_error=recalc_error,
+            max_recalc_days=MAX_RECALC_DAYS,
         )
+
+    @app.route("/recalculate", methods=["POST"])
+    def recalculate():
+        workspace = str(repo.resolve())
+        form = request.form
+        battery = battery_config_from_form(form)
+        start_s = (form.get("rec_start") or "").strip()
+        end_s = (form.get("rec_end") or "").strip()
+
+        def redir_err(msg: str):
+            q = battery_query_string_args(battery)
+            q["start"] = start_s or ""
+            q["end"] = end_s or ""
+            q["recalc_error"] = quote_plus(msg[:900])
+            return redirect(url_for("index", **q))
+
+        try:
+            start_d = datetime.strptime(start_s, "%Y-%m-%d").date()
+            end_d = datetime.strptime(end_s, "%Y-%m-%d").date()
+        except ValueError:
+            return redir_err("Zadaj platný dátum „od“ a „do“ (YYYY-MM-DD).")
+
+        if start_d > end_d:
+            return redir_err("Dátum „od“ musí byť pred alebo rovný ako „do“.")
+
+        day_list = (
+            pd.date_range(start=start_s, end=end_s, freq="D").strftime("%Y-%m-%d").tolist()
+        )
+        if not day_list:
+            return redir_err("Prázdny rozsah dní.")
+        if len(day_list) > MAX_RECALC_DAYS:
+            return redir_err(
+                "Príliš veľa dní (%d). Maximum je %d — skráť obdobie alebo použi skript s --workers."
+                % (len(day_list), MAX_RECALC_DAYS)
+            )
+
+        try:
+            validate_required_marketdata(workspace, day_list, VALIDATION_MARKETS)
+        except ValueError as e:
+            return redir_err(str(e))
+
+        market_config = copy.deepcopy(DEFAULT_OKTE_MARKET_CONFIG)
+        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        safe_e = str(battery["energy"]).replace(".", "_")
+        folder_name = f"dashboard_E{safe_e}_Cy{battery['cycle_limit']}_{ts}"
+        out_dir = (repo / "results" / folder_name).resolve()
+        os.makedirs(out_dir, exist_ok=True)
+        out_str = str(out_dir)
+
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(workspace)
+            for day in day_list:
+                cfg = copy.deepcopy(battery)
+                sm.process_day(
+                    day,
+                    cfg,
+                    market_config,
+                    out_str,
+                    OKTE_MARKET_LIST,
+                    use_db=False,
+                )
+        except Exception as e:
+            traceback.print_exc()
+            return redir_err(str(e) or type(e).__name__)
+        finally:
+            try:
+                os.chdir(old_cwd)
+            except OSError:
+                pass
+
+        q = battery_query_string_args(battery)
+        q["folder"] = folder_name
+        q["start"] = start_s
+        q["end"] = end_s
+        return redirect(url_for("index", **q))
 
     return app
 

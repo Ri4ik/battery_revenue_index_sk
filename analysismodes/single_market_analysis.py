@@ -16,6 +16,16 @@ from markets.id_rolling_intrinsic import simulate_period
 # Suppress the specific FutureWarning
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
+try:
+    from pandas.errors import SettingWithCopyWarning  # pandas >= 1.x
+except Exception:
+    try:
+        from pandas.core.common import SettingWithCopyWarning  # older pandas fallback
+    except Exception:
+        SettingWithCopyWarning = None
+
+if SettingWithCopyWarning is not None:
+    warnings.filterwarnings("ignore", category=SettingWithCopyWarning)
 
 """
 Module for analyzing battery revenue potential in various electricity markets individually,
@@ -46,10 +56,22 @@ def create_index(day, resolution):
 
     datetime_index = pd.DatetimeIndex(index)
 
-    # make it berlin timezone
-    datetime_index = datetime_index.tz_localize("Europe/Berlin")
+    # make it berlin timezone; handle DST transition days robustly
+    datetime_index = _tz_localize_berlin(datetime_index)
 
     return datetime_index
+
+
+def _tz_localize_berlin(index_like):
+    """
+    Localize naive datetime index to Europe/Berlin with DST-safe defaults.
+    """
+    dt_index = pd.DatetimeIndex(index_like)
+    return dt_index.tz_localize(
+        "Europe/Berlin",
+        ambiguous=False,
+        nonexistent="shift_forward",
+    )
 
 
 def compare_blocks(day, afrr=None, fcr=None):
@@ -128,7 +150,7 @@ def compare_blocks(day, afrr=None, fcr=None):
     return comparison
 
 
-def process_day(day, battery_config, market_config, result_folder_path, market_list):
+def process_day(day, battery_config, market_config, result_folder_path, market_list, use_db=True):
     """
     Processes a single day, calculating potential revenues in each specified market.
 
@@ -142,7 +164,7 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
     Returns:
         pd.DataFrame or None: Results dataframe if successful, None on error.
     """
-    db = DBConnector()    
+    db = DBConnector() if use_db else None
     raw_data_path = 'marketdata'
 
 
@@ -151,13 +173,15 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
     results_df_day = pd.DataFrame(columns=market_list, index=timestamp_of_15min)
     
     #turn index in ttz aware for europe
-    results_df_day.index = results_df_day.index.tz_localize('Europe/Berlin')
+    results_df_day.index = _tz_localize_berlin(results_df_day.index)
                 
+    wholesale = None
     for market in market_list:
         try:
                             
             if market == 'DA':
-                wholesale = WholesaleMarket(day, db)
+                if wholesale is None:
+                    wholesale = WholesaleMarket(day, db)
                 raw_data_path = 'marketdata'
                 market_path = 'DA'
                 folder_path = os.path.join(raw_data_path, market_path)
@@ -195,7 +219,7 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
                 )
 
                 # turn index in ttz aware for europe
-                results_df_day.index = results_df_day.index.tz_localize("Europe/Berlin")
+                results_df_day.index = _tz_localize_berlin(results_df_day.index)
 
                 results_df_day["SOC"] = results["soc"].values
                 results_df_day["DA"] = (
@@ -229,7 +253,8 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
                     json.dump(combined_data, f, indent=4, default=str)
 
             elif market == 'ID1':
-                wholesale = WholesaleMarket(day, db)
+                if wholesale is None:
+                    wholesale = WholesaleMarket(day, db)
                 
                 raw_data_path = 'marketdata'
                 market_path = 'ID1'
@@ -252,7 +277,7 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
                 )
 
                 # turn index in ttz aware for europe
-                results_df_day.index = results_df_day.index.tz_localize("Europe/Berlin")
+                results_df_day.index = _tz_localize_berlin(results_df_day.index)
 
                 results_df_day["SOC"] = results["soc"].values
                 results_df_day["ID1"] = (
@@ -286,7 +311,8 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
                     json.dump(combined_data, f, indent=4, default=str)
 
             elif market == 'IDA1':
-                wholesale = WholesaleMarket(day, db)
+                if wholesale is None:
+                    wholesale = WholesaleMarket(day, db)
                 
                 wholesale.set_marketable_power_id1(battery_config, market_config['IDA1'])
 
@@ -306,7 +332,7 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
                 )
 
                 # turn index in ttz aware for europe
-                results_df_day.index = results_df_day.index.tz_localize("Europe/Berlin")
+                results_df_day.index = _tz_localize_berlin(results_df_day.index)
 
                 results_df_day["SOC"] = results["soc"].values
                 results_df_day["IDA1"] = (
@@ -351,7 +377,7 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
                 )
 
                 # turn index in ttz aware for europe
-                results_df_day.index = results_df_day.index.tz_localize("Europe/Berlin")
+                results_df_day.index = _tz_localize_berlin(results_df_day.index)
 
                 # fcr_prices = get_fcr_prices(rf'marketdata\fcr_{day}.xlsx')
                 raw_data_path = "marketdata"
@@ -465,7 +491,7 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
                 )
 
                 # turn index in ttz aware for europe
-                results_df_day.index = results_df_day.index.tz_localize("Europe/Berlin")
+                results_df_day.index = _tz_localize_berlin(results_df_day.index)
 
                 RI_config = market_config["IDC"]
                 start_of_day = pd.Timestamp(day + " 00:00")
@@ -546,7 +572,8 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
                     json.dump(combined_data, f, indent=4, default=str)
 
             elif market == "IMB":
-                wholesale = WholesaleMarket(day, db)
+                if wholesale is None:
+                    wholesale = WholesaleMarket(day, db)
 
                 raw_data_path = "marketdata"
                 market_path = "IMB"
@@ -567,7 +594,7 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
                 results_df_day = pd.DataFrame(
                     columns=["IMB", "SOC"], index=timestamp_of_15min
                 )
-                results_df_day.index = results_df_day.index.tz_localize("Europe/Berlin")
+                results_df_day.index = _tz_localize_berlin(results_df_day.index)
 
                 results_df_day["SOC"] = results["soc"].values
                 results_df_day["IMB"] = (

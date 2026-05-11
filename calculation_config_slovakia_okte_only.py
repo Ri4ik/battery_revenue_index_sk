@@ -1,4 +1,5 @@
 import copy
+import concurrent.futures
 import datetime
 import os
 import traceback
@@ -14,14 +15,34 @@ from tools.slovakia_run_common import (
 from tools.validate_marketdata import validate_required_marketdata
 
 
+def _parse_workers(unknown_args):
+    auto_workers = max(1, min(8, (os.cpu_count() or 2) - 1))
+    workers = auto_workers
+    for i, token in enumerate(unknown_args):
+        if token == "--workers" and i + 1 < len(unknown_args):
+            try:
+                workers = max(1, int(unknown_args[i + 1]))
+            except ValueError:
+                workers = auto_workers
+    return workers
+
+
+def _run_day(day, battery_config, market_config, result_folder, market_list):
+    cfg = copy.deepcopy(battery_config)
+    sm.process_day(day, cfg, market_config, result_folder, market_list, use_db=False)
+    return day
+
+
 if __name__ == "__main__":
-    args, _ = parse_slovakia_run_args("Slovakia OKTE-only benchmark (DA, IDA1, ID1, IMB)")
+    args, unknown = parse_slovakia_run_args(
+        "Slovakia OKTE-only benchmark (DA, IDA1, ID1, IMB)"
+    )
+    workers = _parse_workers(unknown)
     if args.resume and args.resume_parent:
         raise SystemExit("For this script use --resume with --result-folder (full path), not --resume-parent.")
     if args.resume and not args.result_folder:
         raise SystemExit("--resume requires --result-folder <path>")
 
-    parallel = False
     start_day = args.start_day or "2025-03-01"
     end_day = args.end_day or "2026-03-01"
     market_list = ["DA", "IDA1", "ID1", "IMB"]
@@ -68,17 +89,43 @@ if __name__ == "__main__":
     )
     os.makedirs(result_folder, exist_ok=True)
 
-    if parallel:
-        raise NotImplementedError("Parallel mode is disabled.")
-
+    pending_days = []
     for day in day_list:
         if args.resume and day_outputs_complete(result_folder, day, market_list):
             print(f"Skip (cached): {day}")
             continue
-        cfg = copy.deepcopy(battery_config)
-        try:
-            sm.process_day(day, cfg, market_config, result_folder, market_list)
-            print(f"Done: {day}")
-        except Exception as e:
-            print(f"Error for day {day}: {e}")
-            print(traceback.format_exc())
+        pending_days.append(day)
+
+    if workers <= 1:
+        for day in pending_days:
+            cfg = copy.deepcopy(battery_config)
+            try:
+                sm.process_day(
+                    day, cfg, market_config, result_folder, market_list, use_db=False
+                )
+                print(f"Done: {day}")
+            except Exception as e:
+                print(f"Error for day {day}: {e}")
+                print(traceback.format_exc())
+    else:
+        print(f"Running in parallel: workers={workers}, days={len(pending_days)}")
+        with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as ex:
+            futures = {
+                ex.submit(
+                    _run_day,
+                    day,
+                    battery_config,
+                    market_config,
+                    result_folder,
+                    market_list,
+                ): day
+                for day in pending_days
+            }
+            for fut in concurrent.futures.as_completed(futures):
+                day = futures[fut]
+                try:
+                    fut.result()
+                    print(f"Done: {day}")
+                except Exception as e:
+                    print(f"Error for day {day}: {e}")
+                    print(traceback.format_exc())

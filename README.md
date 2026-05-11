@@ -1,6 +1,6 @@
 # Battery Revenue Index (Slovensko)
 
-Projekt je zamerany na vypocet vynosov baterioveho uloziska (BESS) pre slovenske trhy a ich vizualizaciu vo webovom dashborde.
+Projekt je zamerany na vypocet vynosov baterioveho uloziska (BESS) pre slovenske trhy a na vizualizaciu vysledkov vo webovom dashboarde.
 
 ## Co je aktualne implementovane
 
@@ -14,18 +14,24 @@ Projekt je zamerany na vypocet vynosov baterioveho uloziska (BESS) pre slovenske
   - agregacia (`Absolutne hodnoty`, `30-dnovy priemer`, `365-dnovy priemer`, `Anualizovane`),
   - volitelna kumulativna krivka.
 
-## Rychly start (Windows)
+## Spustenie projektu (krok za krokom)
 
-### 1) Instalacia zavislosti
+### 1) Stiahnutie projektu z GitHubu
+
+```bash
+git clone https://github.com/Ri4ik/battery_revenue_index_sk.git
+cd battery_revenue_index_sk
+```
+
+### 2) Vytvorenie virtualneho prostredia a instalacia balikov
 
 ```powershell
-cd "c:\Users\Даниил Бережной\Downloads\battery_revenue_index-main"
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2) Priprava dat
+### 3) Priprava vstupnych dat
 
 Moznost A (jednym prikazom, ak pouzivate pripraveny import):
 
@@ -47,7 +53,63 @@ Moznost B (rucna konverzia CSV/XLSX suborov):
   --afrr-cap-file raw/seps_afrr_capacity_2025-03-01.csv
 ```
 
-### 3) Spustenie vypoctu
+## Prirucka: nacitanie dat z OKTE
+
+Pre import OKTE dat sa pouziva skript `tools/import_okte_exports.py`.
+
+### Najcastejsi priklad (DAM + IDM + IMB API)
+
+```powershell
+.\.venv\Scripts\python.exe tools\import_okte_exports.py `
+  --workspace . `
+  --dam-overview "raw/Overwiev_DAM_2025-03-01_2026-03-01.csv" `
+  --idm-15min "raw/IDM_15min_2025-03-01_2026-03-01.csv" `
+  --date-from 2025-03-01 `
+  --date-to 2026-03-01 `
+  --fetch-system-imbalance `
+  --fetch-demand-supply
+```
+
+### Co znamena kazdy parameter
+
+- `--workspace`  
+  Koreň projektu, kam sa zapisuju subory `marketdata/...`.
+
+- `--dam-overview`  
+  Vstupny CSV export z OKTE pre day-ahead (DAM). Vysledok ide do `marketdata/DA/DA_YYYY-MM-DD.csv`.
+
+- `--idm-15min`  
+  Vstupny 15-min export z OKTE intraday.  
+  Skript z neho zapisuje:
+  - `ID1` do `marketdata/ID1/ID1_YYYY-MM-DD.csv`,
+  - `IDA1` fallback do `marketdata/IDA1/IDA1 YYYY-MM-DD.csv`.
+
+- `--date-from`, `--date-to`  
+  Datumovy rozsah pre API volania (IMB a demand/supply).
+
+- `--fetch-system-imbalance`  
+  Stiahne IMB ceny z OKTE API (`SystemImbalance`) a zapise ich do `marketdata/IMB`.
+
+- `--system-imbalance-evaluation-type`  
+  Typ vyhodnotenia pre IMB API (default: `final`).
+
+- `--system-imbalance-price-field`  
+  Cenove pole z API (default: `isp`). Menit iba ak vies, preco.
+
+- `--fetch-demand-supply`  
+  Volitelny export doplnkovych API dat (DemandSupplyBalance) do `marketdata/OKTE/...`.
+
+- `--use-idm-as-imb-proxy`  
+  Nudzovy fallback: prepise IMB z IDM suboru. Pouzivaj iba ked IMB API nie je dostupne.
+
+### Odporucany postup pre projekt
+
+1. Naimportuj DAM + IDM (`--dam-overview`, `--idm-15min`).
+2. Dotiahni IMB z API (`--fetch-system-imbalance`) pre cely rozsah.
+3. Over, ze v `marketdata/IMB` mas subory pre kazdy den.
+4. Az potom spusti vypocet `calculation_config_slovakia_okte_only.py`.
+
+### 4) Spustenie vypoctu
 
 ```powershell
 .\.venv\Scripts\python.exe calculation_config_slovakia.py
@@ -55,7 +117,15 @@ Moznost B (rucna konverzia CSV/XLSX suborov):
 
 Vysledky sa ulozia do priecinka `results/Slovakia_...`.
 
-### 4) Spustenie webu (dashboard)
+Pre rychlejsi vypocet OKTE-only variantu pouzite paralelne jadra:
+
+```powershell
+.\.venv\Scripts\python.exe calculation_config_slovakia_okte_only.py --start-day 2025-03-01 --end-day 2026-03-01 --workers 8
+```
+
+Ak parameter `--workers` neuvediete, skript automaticky pouzije rozumny pocet jadier.
+
+### 5) Spustenie dashboardu
 
 ```powershell
 .\run_slovakia_dashboard.ps1
