@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+api_checks/**/.env
+api_checks/**/.env.*
+!api_checks/**/.env.example
+
+# Logs and local runtime output
+*.log
+dashboard.out.log
+dashboard.err.log
+api_checks/**/responses/
+api_checks/**/sample_response.*
+
+# IDE/editor files
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
