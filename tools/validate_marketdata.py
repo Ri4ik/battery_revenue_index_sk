@@ -34,6 +34,54 @@ def validate_required_marketdata(workspace: str, day_list: List[str], markets: L
     marketdata_dir = Path(workspace) / "marketdata"
 
     for market in markets:
+        if market == "aFRR":
+            market_dir = marketdata_dir / "aFRR_capacity"
+            energy_dir = marketdata_dir / "SepsDamasEnergy" / "daily"
+            if not market_dir.exists():
+                issues.append(f"[aFRR] missing directory: {market_dir}")
+                continue
+            if not energy_dir.exists():
+                issues.append(f"[aFRR Energy] missing directory: {energy_dir}")
+            for day in day_list:
+                file_path = market_dir / f"afrr_capacity_{day}.csv"
+                if not file_path.exists():
+                    issues.append(f"[aFRR] missing file: {file_path.name}")
+                    continue
+                try:
+                    df = pd.read_csv(file_path)
+                except Exception as exc:
+                    issues.append(f"[aFRR] cannot read {file_path.name}: {exc}")
+                    continue
+                if "PRODUCT" not in df.columns:
+                    issues.append(f"[aFRR] no 'PRODUCT' column in {file_path.name}")
+                    continue
+                actual = df["PRODUCT"].dropna().shape[0]
+                if actual != 12:
+                    issues.append(f"[aFRR] {file_path.name}: expected 12 products, got {actual}")
+                energy_path = energy_dir / f"seps_damas_afrr_energy_{day}.csv"
+                if not energy_path.exists():
+                    issues.append(f"[aFRR Energy] missing file: {energy_path.name}")
+                    continue
+                try:
+                    energy_df = pd.read_csv(energy_path)
+                except Exception as exc:
+                    issues.append(f"[aFRR Energy] cannot read {energy_path.name}: {exc}")
+                    continue
+                required_cols = {
+                    "quarter_hour",
+                    "up_volume_mwh",
+                    "up_price_eur_mwh",
+                    "down_volume_mwh",
+                    "down_price_eur_mwh",
+                }
+                missing_cols = required_cols - set(energy_df.columns)
+                if missing_cols:
+                    issues.append(
+                        f"[aFRR Energy] {energy_path.name}: missing columns {sorted(missing_cols)}"
+                    )
+                if energy_df.empty:
+                    issues.append(f"[aFRR Energy] {energy_path.name}: no rows")
+            continue
         if market not in expected:
             continue
         market_dir = marketdata_dir / market
@@ -56,6 +104,5 @@ def validate_required_marketdata(workspace: str, day_list: List[str], markets: L
 
     print(
         "Market data validation passed for markets: "
-        + ", ".join([m for m in markets if m in expected])
+        + ", ".join([m for m in markets if m in expected or m == "aFRR"])
     )
-

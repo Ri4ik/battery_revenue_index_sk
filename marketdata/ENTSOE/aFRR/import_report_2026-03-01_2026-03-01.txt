@@ -1,0 +1,13 @@
+ENTSO-E aFRR import
+domain=10YSK-SEPS-----K
+date_from=2026-03-01
+date_to=2026-03-01
+
+[procured_balancing_capacity] Procured Balancing Capacity [GL EB 12.3.F / A15]
+raw_files=2
+normalized_rows=2112
+normalized_csv=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\ENTSOE\aFRR\normalized\afrr_procured_balancing_capacity_2026-03-01_2026-03-01.csv
+
+capacity_files=1
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-03-01.csv
+

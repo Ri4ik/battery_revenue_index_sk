@@ -33,13 +33,24 @@ from tools.validate_marketdata import validate_required_marketdata
 
 RESULT_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_results_([A-Za-z0-9+]+)\.json$")
 
-OKTE_MARKET_LIST = ["DA", "IDA1", "ID1", "IMB"]
+SLOVAKIA_MARKET_LIST = ["DA", "IDA1", "ID1", "IMB", "aFRR"]
+OKTE_MARKET_LIST = SLOVAKIA_MARKET_LIST
 
 DEFAULT_OKTE_MARKET_CONFIG = {
     "DA": {"t_delivery": 1, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
     "IDA1": {"t_delivery": 0.25, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
     "ID1": {"t_delivery": 0.25, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
     "IMB": {"t_delivery": 0.25, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
+    "aFRR Capacity": {"t_delivery": 4, "power_share": 0.25, "capture_rate": 1, "capacity_share": 1},
+    "aFRR Energy": {
+        "t_delivery": 0.25,
+        "power_share": 0.25,
+        "capture_rate": 1,
+        "capacity_share": 1,
+        "init_position": 0.05,
+        "cycle_share": 0,
+        "source": "seps_damas",
+    },
 }
 
 DEFAULT_OKTE_BATTERY = {
@@ -120,7 +131,7 @@ def battery_form_defaults_from_request() -> Dict[str, Any]:
 
 
 MAX_RECALC_DAYS = 366
-VALIDATION_MARKETS = ["DA", "ID1", "IDA1", "IMB"]
+VALIDATION_MARKETS = ["DA", "ID1", "IDA1", "IMB", "aFRR"]
 
 
 def battery_query_string_args(b: Dict[str, Any]) -> Dict[str, str]:
@@ -539,7 +550,7 @@ PAGE = """
       <h2 class="battery-title">Parametre batérie a prepočet</h2>
       <p class="battery-note">
         Predvolené hodnoty zodpovedajú skriptu <code>calculation_config_slovakia_okte_only.py</code>.
-        Po spustení sa vytvorí nový priečinok v <code>results/</code> (trhy DA, IDA1, ID1, IMB).
+        Po spustení sa vytvorí nový priečinok v <code>results/</code> (trhy DA, IDA1, ID1, IMB, aFRR).
         Naraz najviac <strong>{{ max_recalc_days }}</strong> dní — na dlhšie obdobia použite skript s <code>--workers</code>.
       </p>
       <form method="post" action="{{ url_recalculate }}">
@@ -759,6 +770,12 @@ def create_app(repo: Path) -> Flask:
             return redir_err(str(e))
 
         market_config = copy.deepcopy(DEFAULT_OKTE_MARKET_CONFIG)
+        market_config["aFRR Capacity"]["power_share"] = min(
+            1.0, battery["energy"] / (battery["power"] * 4.0)
+        )
+        market_config["aFRR Energy"]["power_share"] = market_config["aFRR Capacity"][
+            "power_share"
+        ]
         ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         safe_e = str(battery["energy"]).replace(".", "_")
         folder_name = f"dashboard_E{safe_e}_Cy{battery['cycle_limit']}_{ts}"

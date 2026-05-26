@@ -640,6 +640,72 @@ class aFRRmarket:
                 activated_power, AFRR_SETPOINT, AFRR_SETPOINT_LEGACY
             )
 
+    def read_seps_damas_energy_data(self, day):
+        path = os.path.join(
+            "marketdata",
+            "SepsDamasEnergy",
+            "daily",
+            "seps_damas_afrr_energy_{}.csv".format(day),
+        )
+        if not os.path.exists(path):
+            raise FileNotFoundError(path)
+        data = pd.read_csv(path)
+        data["timestamp_local"] = pd.to_datetime(data["timestamp_local"])
+        return data
+
+    def calculate_seps_damas_energy_revenue(self, day):
+        """
+        Calculate aFRR energy revenue from SEPS/Damas activated aFRR energy.
+
+        SEPS/Damas publishes actual system aFRR activation volume and standard
+        prices per quarter-hour. For a battery benchmark we cap the activated
+        energy by the battery's marketable aFRR power in each 15-minute period.
+        """
+        data = self.read_seps_damas_energy_data(day)
+        index = pd.date_range(start=day + " 00:00", periods=96, freq="15min")
+        result = pd.DataFrame(
+            index=range(1, 97),
+            data={
+                "afrr_revenue": 0.0,
+                "balancing_revenue": 0.0,
+                "soc": self.battery_config.get("startSOC", 0.5),
+                "up_volume_mwh": 0.0,
+                "down_volume_mwh": 0.0,
+                "battery_up_mwh": 0.0,
+                "battery_down_mwh": 0.0,
+            },
+        )
+
+        if "marketable_power" in self.market_config_energy:
+            power_limit = self.market_config_energy["marketable_power"]
+        else:
+            power_limit = pd.Series(index=range(1, 97), data=self.afrr_power)
+
+        for _, row in data.iterrows():
+            try:
+                qh = int(row["quarter_hour"])
+            except (TypeError, ValueError):
+                continue
+            if qh < 1 or qh > 96:
+                continue
+            max_energy_mwh = float(power_limit.loc[qh]) * 0.25
+            up_volume = max(0.0, float(row.get("up_volume_mwh", 0.0)))
+            down_volume = max(0.0, float(row.get("down_volume_mwh", 0.0)))
+            battery_up = min(up_volume, max_energy_mwh)
+            battery_down = min(down_volume, max_energy_mwh)
+            up_price = float(row.get("up_price_eur_mwh", 0.0))
+            down_price = float(row.get("down_price_eur_mwh", 0.0))
+            revenue = battery_up * up_price + battery_down * down_price
+
+            result.loc[qh, "afrr_revenue"] += revenue
+            result.loc[qh, "up_volume_mwh"] += up_volume
+            result.loc[qh, "down_volume_mwh"] += down_volume
+            result.loc[qh, "battery_up_mwh"] += battery_up
+            result.loc[qh, "battery_down_mwh"] += battery_down
+
+        result.index = index
+        return result
+
     def calculate_afrr_energy_revenue(
         self, day, daily_results, battery_config, market_config
     ):
@@ -988,4 +1054,3 @@ class aFRRmarket:
         file_name = f"{day}_aFRR_clearing_data.csv"
         path = os.path.join(folderpath, file_name)
         self.clearing_data.to_csv(path, sep=";")
-
