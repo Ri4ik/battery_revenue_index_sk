@@ -25,9 +25,9 @@ Sucty denných vynosov v aktualnom rocniku:
 - `IDM15`: 55 582.88 EUR
 - `IDM60`: 43 574.60 EUR
 - `IMB`: 114 381.29 EUR
-- `aFRR`: 322 281.78 EUR
+- `aFRR`: 141 488.81 EUR
   - z toho `aFRR Capacity`: 106 806.59 EUR
-  - z toho `aFRR Energy`: 215 475.19 EUR
+  - z toho `aFRR Energy`: 34 682.21 EUR
 
 ## Aktualne datove zdroje
 
@@ -75,8 +75,9 @@ Poznamka k premenovaniu:
   - `calculation_config_slovakia_okte_only.py`
 - Rychly intraday vypocet pre `IDM15/IDM60`, aby rocny prepocet netrval hodiny.
 - Dashboard zobrazuje defaultne `DA`, `IDM15`, `IDM60`, `IMB`, `aFRR`.
-- aFRR Energy sa pocita zo SEPS/Damas aktivacii a cien s limitom podla
-  dostupnej bateriovej vykonovej kapacity v kazdom 15-min intervale.
+- aFRR Energy sa pocita zo SEPS/Damas aktivacii a cien. Vypocet berie net
+  aktivaciu v kazdom 15-min intervale a obmedzuje ju vykonom baterie, SOC
+  hranicami a dennym `cycle_limit`.
 - SEPS/Damas aFRR Energy import nahradza extremne neplatne cenove odlahle
   hodnoty s `abs(price) > 10000 EUR/MWh` interpolaciou v ramci dna.
 

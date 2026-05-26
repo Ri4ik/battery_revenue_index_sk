@@ -48,7 +48,7 @@ DEFAULT_OKTE_MARKET_CONFIG = {
         "capture_rate": 1,
         "capacity_share": 1,
         "init_position": 0.05,
-        "cycle_share": 0,
+        "cycle_share": 1,
         "source": "seps_damas",
     },
 }
