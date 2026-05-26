@@ -1,0 +1,17 @@
+SEPS/Damas aFRR energy import
+inputs=8
+raw_files=8
+rows=49052
+days=511
+date_from=2025-01-01
+date_to=2026-05-26
+combined_csv=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\SepsDamasEnergy\normalized\seps_damas_afrr_energy_2025-01-01_2026-05-26.csv
+daily_files=511
+raw=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\SepsDamasEnergy\raw\01_seps_damas_regulacna_elektrina_2025_01_03.xlsx
+raw=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\SepsDamasEnergy\raw\02_seps_damas_regulacna_elektrina_2025_03_05.xlsx
+raw=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\SepsDamasEnergy\raw\03_seps_damas_regulacna_elektrina_2025_05_07.xlsx
+raw=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\SepsDamasEnergy\raw\04_seps_damas_regulacna_elektrina_2025_07_09.xlsx
+raw=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\SepsDamasEnergy\raw\05_seps_damas_regulacna_elektrina_2025_09_11.xlsx
+raw=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\SepsDamasEnergy\raw\06_seps_damas_regulacna_elektrina_2025_11_12.xlsx
+raw=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\SepsDamasEnergy\raw\07_seps_damas_regulacna_elektrina_2026_1_2.xlsx
+raw=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\SepsDamasEnergy\raw\08_seps_damas_regulacna_elektrina_2026_3_4_5.xlsx

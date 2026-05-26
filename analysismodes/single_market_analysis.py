@@ -624,7 +624,8 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
                     json.dump(combined_data, f, indent=4, default=str)
 
             elif market == 'aFRR':
-                db = DBConnector()
+                if use_db and db is None:
+                    db = DBConnector()
                 wholesale = WholesaleMarket(day, db)
                 afrr = aFRRmarket(day, market_config['aFRR Capacity'], market_config['aFRR Energy'], battery_config, db)
 
@@ -639,9 +640,7 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
                     )
 
                     # turn index in ttz aware for europe
-                    results_df_day.index = results_df_day.index.tz_localize(
-                        "Europe/Berlin"
-                    )
+                    results_df_day.index = _tz_localize_berlin(results_df_day.index)
 
                     # -----------------------------------------------------------------------------------------------------------------
                     # 0) t ID1 prices for SOC management
@@ -650,12 +649,6 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
                     market_path = "ID1"
                     folder_path = os.path.join(raw_data_path, market_path)
 
-                    id1_prices = wholesale.get_id1_prices(folder_path, day, db)
-                    id1_prices["QuarterHour"] = range(1, len(id1_prices) + 1)
-
-                    ida_prices = wholesale.get_ida_prices(day, db)
-                    ida_prices["QuarterHour"] = range(1, len(ida_prices) + 1)
-
                     # -----------------------------------------------------------------------------------------------------------------
                     # 1) COMPARE FCR vs aFRR Capacit
                     # -----------------------------------------------------------------------------------------------------------------
@@ -663,28 +656,46 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
                     # -----------------------------------------------------------------------------------------------------------------
                     # 2) CALCULATE aFRR ENERGY REVENUES
                     # -----------------------------------------------------------------------------------------------------------------
-                    afrr.set_marketable_power_afrr_energy(battery_config)
-                    afrr.set_marketable_soc_afrr_energy(battery_config)
-                    # preprocessing 1: read merit order data
-                    afrr.read_merit_order(db, day)
-
-                    # preprocessing 2: calculate clearing prices for each 4s block
-
-                    # read second by second activation data
-                    afrr.read_activation_data(day, db)
-
-                    # calculate clearing prices and activated mean power for 4s intervalls
-                    afrr.calculate_clearing_prices()
-
-                    soc_marge = 0.05
-                    result_afrr_energy = afrr.calculate_daily_revenue(
-                        soc_marge, id1_prices, ida_prices, battery_config
+                    energy_cfg = market_config.get("aFRR Energy", {})
+                    run_afrr_energy = (
+                        energy_cfg.get("capture_rate", 0) > 0
+                        and energy_cfg.get("power_share", 0) > 0
+                        and energy_cfg.get("capacity_share", 0) > 0
                     )
+                    if run_afrr_energy:
+                        afrr.set_marketable_power_afrr_energy(battery_config)
+                        if energy_cfg.get("source") == "seps_damas":
+                            result_afrr_energy = afrr.calculate_seps_damas_energy_revenue(day)
+                        else:
+                            id1_prices = wholesale.get_id1_prices(folder_path, day, db)
+                            id1_prices["QuarterHour"] = range(1, len(id1_prices) + 1)
 
-                    result_afrr_energy["TotalRevenue"] = (
-                        result_afrr_energy["afrr_revenue"].values
-                        + result_afrr_energy["balancing_revenue"].values
-                    )
+                            ida_prices = wholesale.get_ida_prices(day, db)
+                            ida_prices["QuarterHour"] = range(1, len(ida_prices) + 1)
+
+                            afrr.set_marketable_soc_afrr_energy(battery_config)
+                            afrr.read_merit_order(db, day)
+                            afrr.read_activation_data(day, db)
+                            afrr.calculate_clearing_prices()
+
+                            soc_marge = 0.05
+                            result_afrr_energy = afrr.calculate_daily_revenue(
+                                soc_marge, id1_prices, ida_prices, battery_config
+                            )
+
+                            result_afrr_energy["TotalRevenue"] = (
+                                result_afrr_energy["afrr_revenue"].values
+                                + result_afrr_energy["balancing_revenue"].values
+                            )
+                    else:
+                        result_afrr_energy = pd.DataFrame(
+                            index=range(1, 97),
+                            data={
+                                "afrr_revenue": 0.0,
+                                "balancing_revenue": 0.0,
+                                "soc": battery_config.get("startSOC", 0.5),
+                            },
+                        )
 
                     #afrr.save_clearing_data(day, result_folder_path)
 
@@ -814,5 +825,3 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
         except Exception as e:
             print(f"Error in day {day} and market {market}: {e}")
             traceback.print_exc()
-
-

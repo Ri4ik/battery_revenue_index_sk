@@ -36,14 +36,14 @@ if __name__ == "__main__":
     validate_required_marketdata(
         workspace=".",
         day_list=day_list,
-        markets=["DA", "ID1", "IDA1", "IMB"],
+        markets=["DA", "ID1", "IDA1", "IMB", "aFRR"],
     )
 
     current_date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
 
-    # Simplified Slovak benchmark:
-    # DA + IDA1 + ID1 + IMB + FCR + aFRR Capacity
-    # (aFRR Energy and IDC are intentionally excluded in this first phase)
+    # Slovak benchmark:
+    # DA + IDA1 + ID1 + IMB + FCR + aFRR Capacity + aFRR Energy.
+    # aFRR Energy is sourced from SEPS/Damas "Regulačná elektrina (denná)" exports.
     for energy in [1, 2]:
         for cycles in [1, 2]:
             parallel = False
@@ -102,11 +102,12 @@ if __name__ == "__main__":
                 },
                 "aFRR Energy": {
                     "t_delivery": 0.25,
-                    "power_share": 0.0001,
-                    "capture_rate": 0,
-                    "capacity_share": 0,
+                    "power_share": min(1, energy / (battery_config["power"] * 4)),
+                    "capture_rate": 1,
+                    "capacity_share": 1,
                     "init_position": 0.05,
-                    "cycle_share": 0.0001,
+                    "cycle_share": 0,
+                    "source": "seps_damas",
                 },
             }
 
