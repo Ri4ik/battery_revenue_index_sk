@@ -24,6 +24,7 @@ import pandas as pd
 
 
 SERVICE_SHEET = "aFRR"
+MAX_ABS_PRICE_EUR_MWH = 10000.0
 
 
 def slugify(value):
@@ -131,6 +132,30 @@ def dedupe_rows(rows):
     return list(deduped.values())
 
 
+def sanitize_price_outliers(rows):
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return rows, 0
+
+    outlier_count = 0
+    for col in ["up_price_eur_mwh", "down_price_eur_mwh"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+        mask = df[col].abs() > MAX_ABS_PRICE_EUR_MWH
+        outlier_count += int(mask.sum())
+        df.loc[mask, col] = pd.NA
+        df[col] = (
+            df.sort_values(["date", "quarter_hour"])
+            .groupby("date")[col]
+            .transform(lambda s: s.interpolate(method="linear").ffill().bfill())
+        )
+        df[col] = df[col].fillna(0.0)
+
+    df["up_revenue_eur"] = df["up_volume_mwh"] * df["up_price_eur_mwh"]
+    df["down_revenue_eur"] = df["down_volume_mwh"] * df["down_price_eur_mwh"]
+    df["total_energy_revenue_eur"] = df["up_revenue_eur"] + df["down_revenue_eur"]
+    return df.to_dict("records"), outlier_count
+
+
 def copy_raw(input_path, raw_dir, index):
     raw_dir.mkdir(parents=True, exist_ok=True)
     input_path = Path(input_path).resolve()
@@ -180,6 +205,7 @@ def main(argv=None):
 
     all_rows = dedupe_rows(all_rows)
     all_rows.sort(key=lambda row: (row["timestamp_local"], row["source_file"]))
+    all_rows, outlier_count = sanitize_price_outliers(all_rows)
     fields = [
         "source_file",
         "service",
@@ -225,6 +251,8 @@ def main(argv=None):
         "date_to={}".format(dates[-1]),
         "combined_csv={}".format(combined_path),
         "daily_files={}".format(len(daily_written)),
+        "price_outliers_replaced={}".format(outlier_count),
+        "price_outlier_threshold_abs_eur_mwh={}".format(MAX_ABS_PRICE_EUR_MWH),
     ]
     for path in copied:
         report_lines.append("raw={}".format(path))

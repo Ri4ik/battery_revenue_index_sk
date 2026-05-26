@@ -22,11 +22,20 @@ def _check_file_points(file_path: Path, expected_points: int, market: str) -> Op
 
 
 def validate_required_marketdata(workspace: str, day_list: List[str], markets: List[str]):
-    expected = {"DA": 24, "ID1": 96, "IDA1": 96, "IMB": 96}
+    expected = {
+        "DA": 24,
+        "ID1": 96,
+        "IDA1": 96,
+        "IDM15": 96,
+        "IDM60": 96,
+        "IMB": 96,
+    }
     patterns = {
         "DA": "DA_{day}.csv",
         "ID1": "ID1_{day}.csv",
         "IDA1": "IDA1 {day}.csv",
+        "IDM15": "IDM15_{day}.csv",
+        "IDM60": "IDM60_{day}.csv",
         "IMB": "IMB_{day}.csv",
     }
 

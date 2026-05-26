@@ -2,108 +2,134 @@
 
 ## Aktualny stav projektu
 
-Projekt je adaptovany na slovenske data a aktualne stabilne pocita prakticky pouzitelny index v rezime **single-market OKTE-only** pre trhy:
+Projekt je adaptovany na slovenske data a aktualne pocita prakticky pouzitelny
+single-market benchmark pre tieto hlavne trhy:
 
-- `DA` (Day-Ahead),
-- `ID1` (intraday continuous/index z OKTE IDM 15-min),
-- `IDA1` (zatial fallback z rovnakeho OKTE IDM 15-min zdroja),
-- `IMB` (primarne z OKTE SystemImbalance API, s ciastocnym fallback/proxy stavom v starsich suboroch).
+- `DA` - day-ahead cena z OKTE,
+- `IDM15` - intraday continuous/index z OKTE IDM 15-min, povodne `ID1`,
+- `IDM60` - intraday continuous/index z OKTE IDM 60-min, importovany z OKTE API,
+- `IMB` - imbalance cena z OKTE SystemImbalance API,
+- `aFRR` - kombinacia aFRR Capacity + aFRR Energy.
 
 Hlavny aktualne pouzitelny rocny vysledok je:
 
 - `results/Slovakia_2025-2026 (01.03)`
 - obdobie: `2025-03-01` az `2026-03-01`
-- trhy vo vysledkoch: `DA`, `ID1`, `IDA1`, `IMB`
-- pocet JSON vysledkov: 1464 suborov
+- nove trhy pre dashboard: `DA`, `IDM15`, `IDM60`, `IMB`, `aFRR`
+- legacy vysledky `ID1` a `IDA1` este zostavaju v priecinku kvoli spätnej kompatibilite,
+  ale dashboard ich uz standardne nezobrazuje.
 
-Vstupne OKTE data su lokalne pripravene vo vacsom rozsahu:
+Sucty denných vynosov v aktualnom rocniku:
 
-- `marketdata/DA`: 396 dni (`2025-03-01` az `2026-03-31`)
-- `marketdata/ID1`: 396 dni (`2025-03-01` az `2026-03-31`)
-- `marketdata/IDA1`: 396 dni (`2025-03-01` az `2026-03-31`)
-- `marketdata/IMB`: 396 dni (`2025-03-01` az `2026-03-31`)
+- `DA`: 37 610.87 EUR
+- `IDM15`: 55 582.88 EUR
+- `IDM60`: 43 574.60 EUR
+- `IMB`: 114 381.29 EUR
+- `aFRR`: 322 281.78 EUR
+  - z toho `aFRR Capacity`: 106 806.59 EUR
+  - z toho `aFRR Energy`: 215 475.19 EUR
 
-Webovy dashboard (`tools/slovakia_revenue_dashboard.py`) zobrazuje JSON vysledky z `results/...` a podporuje filtre podla obdobia, trhov, typu grafu a agregacie (`absolute`, `30-day average`, `365-day average`, `annualized`). Dashboard vie spustit aj novy prepocet pre OKTE-only trhy (`DA`, `IDA1`, `ID1`, `IMB`).
+## Aktualne datove zdroje
+
+### OKTE
+
+- OKTE Day-Ahead export (`Overwiev_DAM_...csv`) ->
+  `marketdata/DA/DA_YYYY-MM-DD.csv`
+- OKTE IDM 15-min export / pripravene OKTE data ->
+  `marketdata/IDM15/IDM15_YYYY-MM-DD.csv`
+- OKTE IDM Results API, `productType=60` ->
+  `marketdata/IDM60/IDM60_YYYY-MM-DD.csv`
+- OKTE SystemImbalance API ->
+  `marketdata/IMB/IMB_YYYY-MM-DD.csv`
+- Raw OKTE IDM60 API export:
+  `marketdata/OKTE/idm_results_product60_2025-03-01_2026-03-01.csv`
+
+Poznamka k premenovaniu:
+
+- stare `ID1` je teraz projektovo `IDM15`,
+- stare `IDA1` uz nepouzivame ako fallback z 15-min dat,
+- namiesto toho je pridany novy `IDM60` z OKTE intraday continuous/index 60-min.
+
+### aFRR
+
+- aFRR Capacity je importovana z ENTSO-E `procured_balancing_capacity`
+  do `marketdata/aFRR_capacity/afrr_capacity_YYYY-MM-DD.csv`.
+- aFRR Energy je importovana z SEPS/Damas exportov
+  `Regulacna elektrina (denna)` do:
+  - `marketdata/SepsDamasEnergy/raw/`
+  - `marketdata/SepsDamasEnergy/normalized/`
+  - `marketdata/SepsDamasEnergy/daily/`
+- Aktualny SEPS/Damas energy dataset pokryva `2025-01-01` az `2026-05-26`
+  a obsahuje aj subory `07` a `08` pre rok 2026.
+
+## Co je implementovane
+
+- Import OKTE IDM 60-min cez API v `tools/import_okte_exports.py`
+  (`--fetch-idm-results --idm-product-types 60`).
+- Podpora novych trhov `IDM15` a `IDM60` v:
+  - `analysismodes/single_market_analysis.py`
+  - `markets/wholesale_market.py`
+  - `tools/validate_marketdata.py`
+  - `tools/slovakia_revenue_dashboard.py`
+  - `calculation_config_slovakia.py`
+  - `calculation_config_slovakia_okte_only.py`
+- Rychly intraday vypocet pre `IDM15/IDM60`, aby rocny prepocet netrval hodiny.
+- Dashboard zobrazuje defaultne `DA`, `IDM15`, `IDM60`, `IMB`, `aFRR`.
+- aFRR Energy sa pocita zo SEPS/Damas aktivacii a cien s limitom podla
+  dostupnej bateriovej vykonovej kapacity v kazdom 15-min intervale.
+- SEPS/Damas aFRR Energy import nahradza extremne neplatne cenove odlahle
+  hodnoty s `abs(price) > 10000 EUR/MWh` interpolaciou v ramci dna.
 
 ## Nakolko to funguje korektne
 
 ### Co funguje dobre
 
-- Kompletny tok pre OKTE-only vetvu: import dat -> validacia -> vypocet -> JSON vysledky -> dashboard.
-- Kontrola celistvosti vstupnych radov (`DA`, `ID1`, `IDA1`, `IMB`) pred vypoctom.
-- Rocny single-market vysledok pre `2025-03-01` az `2026-03-01`.
-- Paralelny vypocet v `calculation_config_slovakia_okte_only.py` cez `--workers`.
-- Pokracovanie vo vypocte (`--resume`) bez opakovaneho prepocitavania hotovych dni.
-- Opravene problemy pri prechodoch letneho/zimneho casu (DST), ktore predtym zastavovali vypocet pre konkretne datumy.
+- Kompletny tok: import dat -> validacia -> vypocet -> JSON vysledky -> dashboard.
+- Rocny vysledok pre `2025-03-01` az `2026-03-01`.
+- Validacia vstupnych dat pre `DA`, `IDM15`, `IDM60`, `IMB`, `aFRR`.
+- `IDM60` je skutocne oddeleny zdroj z OKTE API, nie fallback z `IDM15`.
+- aFRR uz nie je iba testovaci den: v hlavnom rocniku je kompletna
+  kombinacia Capacity + Energy.
 
 ### Aktualne limity korektnosti
 
-- `ID1` a `IDA1` su v aktualnom datasete totozne na vsetkych 396 dostupnych dnoch. Dovod: `IDA1` sa zatial generuje ako fallback z rovnakeho OKTE IDM 15-min suboru ako `ID1`.
-- `IMB` je vacsinovo oddelene od `ID1`, ale v aktualnom datasete je este 31 dni, kde `IMB == ID1`. To ukazuje na zostatok fallback/proxy logiky alebo starsie opravene subory, ktore treba refreshnut a skontrolovat.
-- `FCR`, `aFRR capacity`, `aFRR energy` a `IDC` su v kode a ciastocne vo formatoch pripravene, ale lokalne kompletne data existuju len pre testovaci den `2025-03-01`.
-- Plna nemecka cross-market metodika zatial nie je pre Slovensko korektne reprodukovatelna, lebo chyba spolahlive rocne pokrytie rezervnych a detailnych intraday/activation dat.
-
-## Aktualne datove zdroje
-
-### Pouzivane v hlavnom OKTE-only vypocte
-
-- OKTE Day-Ahead export (`Overwiev_DAM_...csv`) -> `marketdata/DA/DA_YYYY-MM-DD.csv`
-- OKTE IDM 15-min export -> `marketdata/ID1/ID1_YYYY-MM-DD.csv`
-- OKTE IDM 15-min export ako fallback -> `marketdata/IDA1/IDA1 YYYY-MM-DD.csv`
-- OKTE SystemImbalance API -> `marketdata/IMB/IMB_YYYY-MM-DD.csv`
-
-### Ciastocne pripravene / testovacie
-
-- SEPS/FCR testovaci den -> `marketdata/FCR/FCR_2025-03-01.csv`
-- aFRR capacity testovaci den -> `marketdata/aFRR_capacity/afrr_capacity_2025-03-01.csv`
-- aFRR energy merit order a activation testovaci den -> `marketdata/aFRR_energy/*_2025-03-01.csv`
-- IDC transactions testovaci den -> `marketdata/IDC/transactions_2025-03-01.csv`
+- `IDM15` je projektove premenovanie stareho `ID1`; historicke vypocty boli
+  prenesene tak, aby sa samotna hodnota nemenila len premenovanim.
+- `IDM60` je 60-min index rozbaleny na 15-min casovu os pre kompatibilitu
+  s bateriovym modelom. V kazdej hodine su preto styri rovnake ceny.
+- `IMB` treba este samostatne auditovat na dni, kde mohli v starsich suboroch
+  ostat fallback/proxy hodnoty.
+- `FCR` a `IDC` nie su plnohodnotne rocne integrovane v hlavnom dashboarde.
+- Cross-market strategia ako v nemeckej verzii este nie je korektne
+  reprodukovana pre Slovensko.
 
 ## Co treba este dokoncit
 
-1. **Oddelit `IDA1` a `ID1` na urovni zdrojov**  
-   Je potrebny samostatny spolahlivy zdroj alebo export priamo pre `IDA1`, nie fallback z jedneho OKTE IDM 15-min suboru.
+1. **Docistit legacy `ID1/IDA1`**
+   Rozhodnut, ci stare subory a JSON vysledky ponechat len ako archiv, alebo ich
+   po migracii odstranit z pracovnych priecinkov.
 
-2. **Dorefreshovat a skontrolovat `IMB`**  
-   Treba odstranit zostavajuce dni, kde `IMB == ID1`, ak nejde o realnu zhodu trhu. Prakticky to znamena znovu natiahnut `IMB` z OKTE SystemImbalance API a ulozit report dni, ktore boli fallback/proxy.
+2. **Dorefreshovat a skontrolovat `IMB`**
+   Overit dni, kde mohol byt pouzity fallback/proxy, a spravit report kvality.
 
-3. **Dokoncit rocne pokrytie `FCR` a `aFRR capacity`**  
-   Treba denne SEPS data v stabilnom formate za cele obdobie a potom hromadny import, validaciu a porovnanie s metodikou ISEA.
+3. **Doplnit FCR**
+   Najst alebo pripravit stabilny zdroj rocnych FCR dat pre Slovensko.
 
-4. **Rozhodnut o `aFRR energy` a `IDC` pre Slovensko**  
-   Pre nemecky index tieto casti stoja na detailnych merit order, activation a transaction datach. Pre Slovensko treba potvrdit, ci su verejne dostupne v dostatocnej kvalite a granularite.
+4. **Rozhodnut o IDC**
+   Overit, ci existuje dostatocne detailny verejny zdroj transakcii alebo indexu
+   pre korektny slovensky IDC vypocet.
 
-5. **Formalizovat quality checks**  
+5. **Formalizovat quality checks**
    Automaticke kontroly:
-   - kde `ID1 == IDA1`,
-   - kde `IMB == ID1`,
-   - kde chybaju dni/trhy,
-   - kde ma subor nespravny pocet bodov (`DA` 24, `ID1/IDA1/IMB` 96),
-   - kde su podozrive interpolacie alebo fallbacky.
-
-6. **Zlepsit odolnost importu pre produkcne pouzitie**  
-   Lepsie logovanie, retry mechanizmy API volani, jasne reporty o chybajucich/problemovych dnoch a oddelene oznacenie suborov vytvorenych fallbackom.
-
-## Preco sa pre Slovensko nepodarilo 1:1 implementovat vsetky trhy ako v nemeckej verzii
-
-Strucne: **limit nie je v matematike modelu, ale v dostupnosti a strukture vstupnych dat**.
-
-Pre nemecku verziu ([ISEA Revenue Index](https://battery-charts.de/revenue-index/#daily-revenues)) existuje mature a unifikovany datapipeline napriec trhmi, vratane dat pre komplexne kombinovane strategie, detailnejsie intraday modelovanie, FCR/aFRR a cross-market logiku.
-
-Pre slovensku adaptaciu plati:
-
-- data su publikovane v inom rozsahu a s inou hlbkou,
-- pri niektorych trhoch chyba ekvivalentna otvorena detailnost za cele obdobie,
-- formaty exportov nie su vzdy stabilne a vyzaduju fallback/proxy pristupy,
-- cast nemeckych modulov, najma `IDC`, `aFRR Energy` a `Cross-Market`, sa neda korektne reprodukovat bez dalsich spolahlivych operatorovych alebo komercnych zdrojov.
+   - chybajuce dni/trhy,
+   - nespravny pocet bodov (`DA` 24, `IDM15/IDM60/IMB` 96),
+   - `NaN` ceny,
+   - fallback/proxy dni,
+   - DST dni s ocakavanym poctom bodov pri zdrojoch, kde to dava zmysel.
 
 ## Zaver
 
-Slovenska verzia je aktualne **prakticky pouzitelny OKTE-only benchmark** pre `DA`, `ID1`, `IDA1` a `IMB` na zaklade dostupnych verejnych dat. Nie je to zatial plna funkcna kopia nemeckeho ISEA indexu pre vsetky trhy a rezimy.
-
-Najblizsie technicke priority su:
-
-1. oddelit realny `IDA1` od `ID1`,
-2. docistit `IMB` fallback dni,
-3. doplnit rocne SEPS/FCR/aFRR data,
-4. pridat automaticke quality reporty.
+Slovenska verzia uz nie je iba OKTE-only prototyp. Aktualne ma rocny dashboard
+pre `DA`, `IDM15`, `IDM60`, `IMB` a `aFRR`, pricom `aFRR` obsahuje Capacity aj
+Energy cast. Najdolezitejsie dalsie prace su audit `IMB`, rozhodnutie o legacy
+`ID1/IDA1`, doplnenie FCR/IDC a dalsie quality reporty.

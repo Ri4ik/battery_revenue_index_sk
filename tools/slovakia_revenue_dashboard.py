@@ -33,13 +33,13 @@ from tools.validate_marketdata import validate_required_marketdata
 
 RESULT_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_results_([A-Za-z0-9+]+)\.json$")
 
-SLOVAKIA_MARKET_LIST = ["DA", "IDA1", "ID1", "IMB", "aFRR"]
+SLOVAKIA_MARKET_LIST = ["DA", "IDM15", "IDM60", "IMB", "aFRR"]
 OKTE_MARKET_LIST = SLOVAKIA_MARKET_LIST
 
 DEFAULT_OKTE_MARKET_CONFIG = {
     "DA": {"t_delivery": 1, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
-    "IDA1": {"t_delivery": 0.25, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
-    "ID1": {"t_delivery": 0.25, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
+    "IDM15": {"t_delivery": 0.25, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
+    "IDM60": {"t_delivery": 0.25, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
     "IMB": {"t_delivery": 0.25, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
     "aFRR Capacity": {"t_delivery": 4, "power_share": 0.25, "capture_rate": 1, "capacity_share": 1},
     "aFRR Energy": {
@@ -131,7 +131,7 @@ def battery_form_defaults_from_request() -> Dict[str, Any]:
 
 
 MAX_RECALC_DAYS = 366
-VALIDATION_MARKETS = ["DA", "ID1", "IDA1", "IMB", "aFRR"]
+VALIDATION_MARKETS = ["DA", "IDM15", "IDM60", "IMB", "aFRR"]
 
 
 def battery_query_string_args(b: Dict[str, Any]) -> Dict[str, str]:
@@ -550,7 +550,7 @@ PAGE = """
       <h2 class="battery-title">Parametre batérie a prepočet</h2>
       <p class="battery-note">
         Predvolené hodnoty zodpovedajú skriptu <code>calculation_config_slovakia_okte_only.py</code>.
-        Po spustení sa vytvorí nový priečinok v <code>results/</code> (trhy DA, IDA1, ID1, IMB, aFRR).
+        Po spustení sa vytvorí nový priečinok v <code>results/</code> (trhy DA, IDM15, IDM60, IMB, aFRR).
         Naraz najviac <strong>{{ max_recalc_days }}</strong> dní — na dlhšie obdobia použite skript s <code>--workers</code>.
       </p>
       <form method="post" action="{{ url_recalculate }}">
@@ -657,7 +657,10 @@ def create_app(repo: Path) -> Flask:
         if df.empty:
             return "<h1>Prázdne dáta</h1><p>Vo vybranom priečinku nie sú vhodné JSON súbory.</p>", 404
 
-        all_markets = sorted(df["market"].unique())
+        available_markets = set(df["market"].unique())
+        all_markets = [m for m in SLOVAKIA_MARKET_LIST if m in available_markets]
+        extra_markets = sorted(available_markets - set(all_markets) - {"ID1", "IDA1"})
+        all_markets.extend(extra_markets)
         dmin = df["day"].min().date()
         dmax = df["day"].max().date()
 

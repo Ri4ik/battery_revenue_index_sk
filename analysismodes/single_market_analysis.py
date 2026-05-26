@@ -252,6 +252,55 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
                 with open(full_path, "w") as f:
                     json.dump(combined_data, f, indent=4, default=str)
 
+            elif market in ("IDM15", "IDM60"):
+                if wholesale is None:
+                    wholesale = WholesaleMarket(day, db)
+
+                wholesale.set_marketable_power_id1(battery_config, market_config[market])
+                prices = wholesale.get_intraday_prices(market, day, db)
+                executed_trades, daily_profit, results = (
+                    wholesale.calculate_market_trades_fast(
+                        prices, battery_config, market_config[market]
+                    )
+                )
+
+                results_df_day = pd.DataFrame()
+                timestamp_of_15min = pd.date_range(
+                    start=day + " 00:00", periods=96, freq="15min"
+                )
+                results_df_day = pd.DataFrame(
+                    columns=[market, "SOC"], index=timestamp_of_15min
+                )
+
+                results_df_day.index = _tz_localize_berlin(results_df_day.index)
+
+                results_df_day["SOC"] = results["soc"].values
+                results_df_day[market] = (
+                    results["revenue"].values * market_config[market]["capture_rate"]
+                )
+
+                market_results = {}
+                results_df_day.index = results_df_day.index.astype(str)
+                for column in results_df_day.columns:
+                    market_results[column] = results_df_day[column].to_dict()
+
+                daily_results = pd.DataFrame(
+                    index=[market, "Total"], columns=["daily_revenue"], data=0
+                )
+                daily_results.loc[market] = results_df_day[market].sum()
+                daily_results.loc["Total"] = daily_results.sum()
+
+                combined_data = {
+                    "results": daily_results.to_dict(),
+                    "battery_config": battery_config,
+                    "market_config": market_config,
+                    "market_results": market_results,
+                }
+                filename = f"{day}_results_{market}.json"
+                full_path = os.path.join(result_folder_path, filename)
+                with open(full_path, "w") as f:
+                    json.dump(combined_data, f, indent=4, default=str)
+
             elif market == 'ID1':
                 if wholesale is None:
                     wholesale = WholesaleMarket(day, db)
