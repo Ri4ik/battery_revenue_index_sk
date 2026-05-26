@@ -27,7 +27,13 @@ class WholesaleMarket:
             day (str): The day for which market data is initialized in 'YYYY-MM-DD' format.
             db_connector (object): Database connector object for retrieving market data.
         """
-        self.prices = {"DA": None, "IDA1": None, "ID1": None}
+        self.prices = {
+            "DA": None,
+            "IDA1": None,
+            "ID1": None,
+            "IDM15": None,
+            "IDM60": None,
+        }
 
         raw_data_path = "marketdata"
         market_path = "ID1"
@@ -156,6 +162,42 @@ class WholesaleMarket:
                 ida_prices = None
 
         return ida_prices
+
+    def get_intraday_prices(self, market, day, db=None):
+        market_specs = {
+            "ID1": ("ID1", f"ID1_{day}.csv"),
+            "IDA1": ("IDA1", f"IDA1 {day}.csv"),
+            "IDM15": ("IDM15", f"IDM15_{day}.csv"),
+            "IDM60": ("IDM60", f"IDM60_{day}.csv"),
+        }
+        if market not in market_specs:
+            raise ValueError(f"Unsupported intraday market: {market}")
+
+        folder_name, file_name = market_specs[market]
+        folder_path = os.path.join("marketdata", folder_name)
+        file_path = os.path.join(folder_path, file_name)
+
+        try:
+            prices = pd.read_csv(file_path, index_col=0, parse_dates=True)
+        except FileNotFoundError:
+            if market == "IDM15":
+                legacy_path = os.path.join("marketdata", "ID1")
+                prices = self.get_id1_prices(legacy_path, day, db)
+            elif market == "IDM60":
+                raise FileNotFoundError(
+                    f"IDM60 file not found: {file_path}. "
+                    "Create it with tools/import_okte_exports.py --fetch-idm-results --idm-product-types 60"
+                )
+            elif market == "IDA1":
+                prices = self.get_ida_prices(day, db)
+            else:
+                prices = self.get_id1_prices(folder_path, day, db)
+
+        if prices is not None and isinstance(prices, pd.DataFrame):
+            if "price" not in prices.columns and prices.shape[1] == 1:
+                prices.columns = ["price"]
+            self.prices[market] = prices
+        return prices
 
     def get_id1_prices(self, folder_path, day, db=None):
         file_path = os.path.join(folder_path, f"ID1_{day}.csv")
@@ -588,6 +630,129 @@ class WholesaleMarket:
         )
         result_df["soc"] = soc.values[1 : len(prices) + 1]
 
+        return executed_trades, daily_profit, result_df
+
+    def calculate_market_trades_fast(
+        self, prices, battery_config, market_config, soc_input=None, blocked_times=None
+    ):
+        if soc_input is not None or blocked_times is not None:
+            return self.calculate_market_trades(
+                prices, battery_config, market_config, soc_input=soc_input, blocked_times=blocked_times
+            )
+
+        if "marketable_power" not in market_config:
+            available_power_from_config = min(
+                battery_config["energy"]
+                * battery_config["DoD"]
+                / market_config["t_delivery"],
+                battery_config["power"] * market_config["power_share"],
+            )
+            available_power_fom_capa = (
+                battery_config["energy"]
+                * market_config["capacity_share"]
+                / 2
+                / market_config["t_delivery"]
+            )
+            market_config["marketable_power"] = min(
+                available_power_from_config, available_power_fom_capa
+            )
+        battery_config["marketable_power"] = market_config["marketable_power"]
+
+        prices = prices.squeeze()
+        price_idx = prices.index
+        p = np.asarray(prices.values, dtype=np.float64).reshape(-1)
+        n = len(p)
+
+        trade_volume_buy = (
+            market_config["t_delivery"]
+            * market_config["marketable_power"]
+            / battery_config["efficiency"]
+        )
+        trade_volume_sell = (
+            market_config["t_delivery"]
+            * market_config["marketable_power"]
+            * battery_config["efficiency"]
+        )
+        soc_change = (
+            market_config["t_delivery"]
+            * market_config["marketable_power"]
+            / battery_config["energy"]
+        )
+        marginal_cost_per_trade = (
+            battery_config["aging_costs"]
+            * market_config["t_delivery"]
+            * market_config["marketable_power"]
+        )
+
+        max_soc = battery_config["maxSOC"]
+        min_soc = battery_config["minSOC"]
+        if "capacity_share" in market_config:
+            max_soc = min(max_soc, 0.5 + market_config["capacity_share"] / 2)
+            min_soc = max(min_soc, 0.5 - market_config["capacity_share"] / 2)
+
+        start_soc = battery_config["startSOC"]
+        delta = np.zeros(n, dtype=np.float64)
+        executed_rows = []
+        daily_profit = 0.0
+
+        pairs = []
+        for sell_i in range(n):
+            for buy_i in range(n):
+                if sell_i == buy_i:
+                    continue
+                spread = p[sell_i] - p[buy_i]
+                if spread >= marginal_cost_per_trade:
+                    pairs.append((spread, sell_i, buy_i))
+        pairs.sort(reverse=True, key=lambda row: row[0])
+
+        for spread, sell_i, buy_i in pairs:
+            trial = delta.copy()
+            trial[buy_i] += soc_change
+            trial[sell_i] -= soc_change
+            soc_after = start_soc + np.cumsum(trial)
+            if soc_after.max() > max_soc + 1e-9 or soc_after.min() < min_soc - 1e-9:
+                continue
+            if abs(soc_after[-1] - start_soc) > 1e-9:
+                continue
+            if trial[trial > 0].sum() > battery_config["cycle_limit"] + 1e-9:
+                continue
+            pos_step = trial[trial > 0]
+            neg_step = trial[trial < 0]
+            if (
+                (len(pos_step) and pos_step.max() > market_config["marketable_power"] * market_config["t_delivery"] + 1e-9)
+                or (len(neg_step) and abs(neg_step.min()) > market_config["marketable_power"] * market_config["t_delivery"] + 1e-9)
+            ):
+                continue
+
+            delta = trial
+            revenue = trade_volume_sell * p[sell_i]
+            costs = trade_volume_buy * p[buy_i]
+            profit = revenue - costs
+            daily_profit += profit
+            executed_rows.append(
+                {
+                    "spread": spread,
+                    "t_buy": price_idx[buy_i],
+                    "t_sell": price_idx[sell_i],
+                    "p_buy": p[buy_i],
+                    "p_sell": p[sell_i],
+                    "revenue": revenue,
+                    "costs": costs,
+                    "profit": profit,
+                }
+            )
+
+        executed_trades = (
+            pd.DataFrame(executed_rows)
+            if executed_rows
+            else pd.DataFrame(
+                columns=["spread", "t_buy", "t_sell", "p_buy", "p_sell", "costs", "revenue", "profit"]
+            )
+        )
+        result_df = self.get_buy_sell_data(
+            price_idx, executed_trades, trade_volume_sell, trade_volume_buy
+        )
+        result_df["soc"] = start_soc + np.cumsum(delta)
         return executed_trades, daily_profit, result_df
 
     def get_buy_sell_data(self, begin_of_hour_index, executed_trades, e_sell, e_buy):

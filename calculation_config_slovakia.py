@@ -16,7 +16,7 @@ from tools.validate_marketdata import validate_required_marketdata
 
 if __name__ == "__main__":
     args, _ = parse_slovakia_run_args(
-        "Slovakia single-market benchmark (DA, IDA1, ID1, IMB, FCR, aFRR)"
+        "Slovakia single-market benchmark (DA, IDM15, IDM60, IMB, FCR, aFRR)"
     )
     if args.resume and args.result_folder and args.resume_parent:
         raise SystemExit("Use either --result-folder OR --resume-parent with --resume, not both.")
@@ -36,18 +36,18 @@ if __name__ == "__main__":
     validate_required_marketdata(
         workspace=".",
         day_list=day_list,
-        markets=["DA", "ID1", "IDA1", "IMB", "aFRR"],
+        markets=["DA", "IDM15", "IDM60", "IMB", "aFRR"],
     )
 
     current_date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
 
     # Slovak benchmark:
-    # DA + IDA1 + ID1 + IMB + FCR + aFRR Capacity + aFRR Energy.
+    # DA + IDM15 + IDM60 + IMB + FCR + aFRR Capacity + aFRR Energy.
     # aFRR Energy is sourced from SEPS/Damas "Regulačná elektrina (denná)" exports.
     for energy in [1, 2]:
         for cycles in [1, 2]:
             parallel = False
-            market_list = ["DA", "IDA1", "ID1", "IMB", "FCR", "aFRR"]
+            market_list = ["DA", "IDM15", "IDM60", "IMB", "FCR", "aFRR"]
 
             battery_config = {
                 "energy": energy,
@@ -69,13 +69,13 @@ if __name__ == "__main__":
                     "capture_rate": 1,
                     "capacity_share": 1,
                 },
-                "IDA1": {
+                "IDM15": {
                     "t_delivery": 0.25,
                     "power_share": 1,
                     "capture_rate": 1,
                     "capacity_share": 1,
                 },
-                "ID1": {
+                "IDM60": {
                     "t_delivery": 0.25,
                     "power_share": 1,
                     "capture_rate": 1,
