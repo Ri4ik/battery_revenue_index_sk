@@ -658,17 +658,27 @@ class aFRRmarket:
         Calculate aFRR energy revenue from SEPS/Damas activated aFRR energy.
 
         SEPS/Damas publishes actual system aFRR activation volume and standard
-        prices per quarter-hour. For a battery benchmark we cap the activated
-        energy by the battery's marketable aFRR power in each 15-minute period.
+        prices per quarter-hour. For a battery benchmark we follow the net
+        activation direction per quarter-hour and cap delivery by marketable
+        aFRR power, SOC headroom, and the configured daily cycle budget.
         """
         data = self.read_seps_damas_energy_data(day)
         index = pd.date_range(start=day + " 00:00", periods=96, freq="15min")
+        start_soc = float(self.battery_config.get("startSOC", 0.5))
+        min_soc = float(self.battery_config.get("minSOC", 0.0))
+        max_soc = float(self.battery_config.get("maxSOC", 1.0))
+        battery_energy = float(self.battery_config.get("energy", 1.0))
+        cycle_share = float(self.market_config_energy.get("cycle_share", 1.0))
+        cycle_limit = float(self.battery_config.get("cycle_limit", 1.0)) * cycle_share
+        max_throughput_mwh = max(0.0, 2.0 * battery_energy * cycle_limit)
+        soc = start_soc
+        throughput_mwh = 0.0
         result = pd.DataFrame(
             index=range(1, 97),
             data={
                 "afrr_revenue": 0.0,
                 "balancing_revenue": 0.0,
-                "soc": self.battery_config.get("startSOC", 0.5),
+                "soc": start_soc,
                 "up_volume_mwh": 0.0,
                 "down_volume_mwh": 0.0,
                 "battery_up_mwh": 0.0,
@@ -681,27 +691,63 @@ class aFRRmarket:
         else:
             power_limit = pd.Series(index=range(1, 97), data=self.afrr_power)
 
-        for _, row in data.iterrows():
-            try:
-                qh = int(row["quarter_hour"])
-            except (TypeError, ValueError):
+        for qh in range(1, 97):
+            rows_qh = data[data["quarter_hour"] == qh]
+            if rows_qh.empty:
+                result.loc[qh, "soc"] = soc
                 continue
-            if qh < 1 or qh > 96:
-                continue
-            max_energy_mwh = float(power_limit.loc[qh]) * 0.25
-            up_volume = max(0.0, float(row.get("up_volume_mwh", 0.0)))
-            down_volume = max(0.0, float(row.get("down_volume_mwh", 0.0)))
-            battery_up = min(up_volume, max_energy_mwh)
-            battery_down = min(down_volume, max_energy_mwh)
-            up_price = float(row.get("up_price_eur_mwh", 0.0))
-            down_price = float(row.get("down_price_eur_mwh", 0.0))
-            revenue = battery_up * up_price + battery_down * down_price
 
-            result.loc[qh, "afrr_revenue"] += revenue
-            result.loc[qh, "up_volume_mwh"] += up_volume
-            result.loc[qh, "down_volume_mwh"] += down_volume
-            result.loc[qh, "battery_up_mwh"] += battery_up
-            result.loc[qh, "battery_down_mwh"] += battery_down
+            max_energy_mwh = float(power_limit.loc[qh]) * 0.25
+            remaining_throughput = max_throughput_mwh - throughput_mwh
+            if remaining_throughput <= 0 or max_energy_mwh <= 0:
+                result.loc[qh, "soc"] = soc
+                continue
+
+            up_volume = rows_qh["up_volume_mwh"].clip(lower=0).sum()
+            down_volume = rows_qh["down_volume_mwh"].clip(lower=0).sum()
+            up_revenue = (
+                rows_qh["up_volume_mwh"].clip(lower=0) * rows_qh["up_price_eur_mwh"]
+            ).sum()
+            down_revenue = (
+                rows_qh["down_volume_mwh"].clip(lower=0)
+                * rows_qh["down_price_eur_mwh"]
+            ).sum()
+            up_price = up_revenue / up_volume if up_volume else 0.0
+            down_price = down_revenue / down_volume if down_volume else 0.0
+            net_volume = up_volume - down_volume
+
+            battery_up = 0.0
+            battery_down = 0.0
+            revenue = 0.0
+            if net_volume > 0:
+                soc_headroom_mwh = max(0.0, (soc - min_soc) * battery_energy)
+                battery_up = min(
+                    net_volume,
+                    max_energy_mwh,
+                    remaining_throughput,
+                    soc_headroom_mwh,
+                )
+                revenue = battery_up * up_price
+                soc -= battery_up / battery_energy
+                throughput_mwh += battery_up
+            elif net_volume < 0:
+                soc_headroom_mwh = max(0.0, (max_soc - soc) * battery_energy)
+                battery_down = min(
+                    -net_volume,
+                    max_energy_mwh,
+                    remaining_throughput,
+                    soc_headroom_mwh,
+                )
+                revenue = battery_down * down_price
+                soc += battery_down / battery_energy
+                throughput_mwh += battery_down
+
+            result.loc[qh, "afrr_revenue"] = revenue
+            result.loc[qh, "up_volume_mwh"] = up_volume
+            result.loc[qh, "down_volume_mwh"] = down_volume
+            result.loc[qh, "battery_up_mwh"] = battery_up
+            result.loc[qh, "battery_down_mwh"] = battery_down
+            result.loc[qh, "soc"] = soc
 
         result.index = index
         return result
