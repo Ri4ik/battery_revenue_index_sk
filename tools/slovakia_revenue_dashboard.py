@@ -375,7 +375,7 @@ PAGE = """
   <div class="container">
     <h1 class="title">ISEA Index výnosov batérií</h1>
     <p class="muted">
-      Slovenská verzia dashboardu s dátami z <code>results/</code>.
+      Slovenská verzia dashboardu s dátami z {% if use_db %}databázy{% else %}<code>results/</code>{% endif %}.
       Inšpirácia dizajnom:
       <a href="https://battery-charts.de/revenue-index/#daily-revenues">battery-charts.de</a>.
     </p>
@@ -384,7 +384,7 @@ PAGE = """
       <form method="get" action="{{ url }}" id="dashboard-form">
         <div class="battery-filters">
           <div class="control-group">
-            <label>System Type</label>
+            <label>Typ systému</label>
             <select name="system_type" onchange="this.form.submit()">
             {% for h in system_type_options %}
             <option value="{{ h }}" {% if h == system_type %}selected{% endif %}>{{ h }} h</option>
@@ -392,7 +392,7 @@ PAGE = """
             </select>
           </div>
           <div class="control-group">
-            <label>Cycle Limit Per Day</label>
+            <label>Limit cyklov za deň</label>
             <select name="cycle_limit" onchange="this.form.submit()">
             {% for c in cycle_limit_options %}
             <option value="{{ c }}" {% if c == cycle_limit %}selected{% endif %}>{{ c }}</option>
@@ -404,8 +404,9 @@ PAGE = """
         {% if missing_combo %}
         <div class="missing-data">
           Pre kombináciu <strong>{{ system_type }} h / {{ cycle_limit }} cyklov</strong> ešte nie sú
-          vypočítané výsledky v <code>results/{{ results_base }}_{{ system_type }}_{{ cycle_limit }}/</code>.
+          vypočítané výsledky v <code>results/{{ results_base }}_{{ system_type }}_{{ cycle_limit }}/</code>{% if use_db %} alebo nie sú nahraté do databázy{% endif %}.
           Spusti: <code>python calculation_config_slovakia.py --start-day 2025-03-01 --end-day 2026-03-01 --resume --resume-parent "results/{{ results_base }}" --only-configs {{ system_type }}_{{ cycle_limit }} --workers 11</code>
+          {% if use_db %}a potom <code>python tools/import_results_to_db.py</code>{% endif %}
         </div>
         {% endif %}
 
@@ -505,14 +506,43 @@ def create_app(repo: Path) -> Flask:
     app = Flask(__name__)
     results_dir = repo / "results"
 
+    # With DATABASE_URL set (Docker deployment) results are read from the database,
+    # otherwise directly from the JSON files in results/.
+    from tools import results_db
+
+    engine = results_db.get_engine() if results_db.database_url() else None
+    use_db = engine is not None
+
+    def default_base() -> str:
+        if not use_db:
+            return pick_default_base(results_dir)
+        bases = results_db.list_datasets(engine)
+        if DEFAULT_RESULTS_BASE in bases:
+            return DEFAULT_RESULTS_BASE
+        if bases:
+            return bases[0]
+        raise ValueError("No result bases found.")
+
+    def load_combo(base: str, system_type: int, cycle_limit: int) -> pd.DataFrame:
+        if use_db:
+            return results_db.load_daily_revenue(engine, base, system_type, cycle_limit)
+        folder_path = resolve_battery_result_folder(
+            results_dir, base, system_type, cycle_limit
+        )
+        if folder_path is None or not folder_has_results(folder_path):
+            return pd.DataFrame()
+        return parse_result_files(folder_path)
+
     @app.route("/")
     def index():
         try:
-            results_base = request.args.get("base") or pick_default_base(results_dir)
+            results_base = request.args.get("base") or default_base()
         except ValueError:
             return (
-                "<h1>Chýbajú výsledky</h1><p>V priečinku results/ nie sú JSON "
-                "<code>YYYY-MM-DD_results_*.json</code>.</p>",
+                "<h1>Chýbajú výsledky</h1><p>Nenašli sa žiadne výsledky "
+                + ("v databáze." if use_db else "v priečinku results/ "
+                   "(JSON <code>YYYY-MM-DD_results_*.json</code>).")
+                + "</p>",
                 404,
             )
 
@@ -523,10 +553,8 @@ def create_app(repo: Path) -> Flask:
             request.args.get("cycle_limit"), CYCLE_LIMIT_OPTIONS, 1
         )
 
-        folder_path = resolve_battery_result_folder(
-            results_dir, results_base, system_type, cycle_limit
-        )
-        missing_combo = folder_path is None or not folder_has_results(folder_path)
+        df = load_combo(results_base, system_type, cycle_limit)
+        missing_combo = df.empty
 
         if missing_combo:
             df = pd.DataFrame(columns=["day", "market", "daily_revenue_eur"])
@@ -534,19 +562,12 @@ def create_app(repo: Path) -> Flask:
             dmax = datetime.strptime("2026-03-01", "%Y-%m-%d").date()
             all_markets = list(SLOVAKIA_MARKET_LIST)
         else:
-            df = parse_result_files(folder_path)
-            if df.empty:
-                missing_combo = True
-                dmin = datetime.strptime("2025-03-01", "%Y-%m-%d").date()
-                dmax = datetime.strptime("2026-03-01", "%Y-%m-%d").date()
-                all_markets = list(SLOVAKIA_MARKET_LIST)
-            else:
-                available_markets = set(df["market"].unique())
-                all_markets = [m for m in SLOVAKIA_MARKET_LIST if m in available_markets]
-                extra_markets = sorted(available_markets - set(all_markets) - {"ID1", "IDA1"})
-                all_markets.extend(extra_markets)
-                dmin = df["day"].min().date()
-                dmax = df["day"].max().date()
+            available_markets = set(df["market"].unique())
+            all_markets = [m for m in SLOVAKIA_MARKET_LIST if m in available_markets]
+            extra_markets = sorted(available_markets - set(all_markets) - {"ID1", "IDA1"})
+            all_markets.extend(extra_markets)
+            dmin = df["day"].min().date()
+            dmax = df["day"].max().date()
 
         selected = request.args.getlist("markets")
         if not selected:
@@ -606,6 +627,7 @@ def create_app(repo: Path) -> Flask:
             system_type_options=SYSTEM_TYPE_OPTIONS,
             cycle_limit_options=CYCLE_LIMIT_OPTIONS,
             missing_combo=missing_combo,
+            use_db=use_db,
             start=start_d.isoformat(),
             end=end_d.isoformat(),
             all_markets=all_markets,

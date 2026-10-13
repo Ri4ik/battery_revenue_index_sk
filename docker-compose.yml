@@ -1,0 +1,45 @@
+x-database-url: &database-url
+  DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-bri}:${POSTGRES_PASSWORD:-bri}@db:5432/${POSTGRES_DB:-battery_revenue_index}
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bri}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bri}
+      POSTGRES_DB: ${POSTGRES_DB:-battery_revenue_index}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Reachable only from this machine (DBeaver/pgAdmin on localhost:5432), not from the network.
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # One-shot job: loads results/ JSON into the database (skips combos already imported).
+  importer:
+    build: .
+    image: battery-revenue-index-sk
+    environment: *database-url
+    command: python tools/import_results_to_db.py
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  dashboard:
+    image: battery-revenue-index-sk
+    environment: *database-url
+    ports:
+      - "5050:5050"
+    depends_on:
+      importer:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  pgdata:
