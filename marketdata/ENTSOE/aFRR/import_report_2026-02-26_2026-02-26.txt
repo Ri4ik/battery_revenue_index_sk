@@ -1,0 +1,21 @@
+ENTSO-E aFRR import
+domain=10YSK-SEPS-----K
+date_from=2026-02-26
+date_to=2026-02-26
+
+[balancing_energy_bids] Balancing Energy Bids [GL EB 12.3.B&C]
+raw_files=22
+normalized_rows=2037
+normalized_csv=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\ENTSOE\aFRR\normalized\afrr_balancing_energy_bids_2026-02-26_2026-02-26.csv
+
+merit_order_files=1
+merit_order=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_energy\aFRR_merit_order_2026-02-26.csv
+
+[procured_balancing_capacity] Procured Balancing Capacity [GL EB 12.3.F / A15]
+raw_files=2
+normalized_rows=2880
+normalized_csv=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\ENTSOE\aFRR\normalized\afrr_procured_balancing_capacity_2026-02-26_2026-02-26.csv
+
+capacity_files=1
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-26.csv
+

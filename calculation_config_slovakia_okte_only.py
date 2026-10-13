@@ -35,7 +35,7 @@ def _run_day(day, battery_config, market_config, result_folder, market_list):
 
 if __name__ == "__main__":
     args, unknown = parse_slovakia_run_args(
-        "Slovakia OKTE-only benchmark (DA, IDA1, ID1, IMB)"
+        "Slovakia OKTE-only benchmark (DA, IDM15, IDM60, IMB)"
     )
     workers = _parse_workers(unknown)
     if args.resume and args.resume_parent:
@@ -45,7 +45,7 @@ if __name__ == "__main__":
 
     start_day = args.start_day or "2025-03-01"
     end_day = args.end_day or "2026-03-01"
-    market_list = ["DA", "IDA1", "ID1", "IMB"]
+    market_list = ["DA", "IDM15", "IDM60", "IMB"]
 
     battery_config = {
         "energy": 1,
@@ -62,8 +62,8 @@ if __name__ == "__main__":
 
     market_config = {
         "DA": {"t_delivery": 1, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
-        "IDA1": {"t_delivery": 0.25, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
-        "ID1": {"t_delivery": 0.25, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
+        "IDM15": {"t_delivery": 0.25, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
+        "IDM60": {"t_delivery": 0.25, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
         "IMB": {"t_delivery": 0.25, "power_share": 1, "capture_rate": 1, "capacity_share": 1},
     }
 
@@ -78,7 +78,7 @@ if __name__ == "__main__":
     validate_required_marketdata(
         workspace=".",
         day_list=day_list,
-        markets=["DA", "ID1", "IDA1", "IMB"],
+        markets=["DA", "IDM15", "IDM60", "IMB"],
     )
 
     current_date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")

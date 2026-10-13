@@ -1,0 +1,48 @@
+ENTSO-E aFRR import
+domain=10YSK-SEPS-----K
+date_from=2026-05-23
+date_to=2026-05-23
+
+[balancing_energy_bids] Balancing Energy Bids [GL EB 12.3.B&C]
+raw_files=34
+normalized_rows=3202
+normalized_csv=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\ENTSOE\aFRR\normalized\afrr_balancing_energy_bids_2026-05-23_2026-05-23.csv
+
+merit_order_files=1
+merit_order=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_energy\aFRR_merit_order_2026-05-23.csv
+
+[aggregated_balancing_energy_bids] Aggregated Balancing Energy Bids [GL EB 12.3.E]
+raw_files=1
+normalized_rows=43
+normalized_csv=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\ENTSOE\aFRR\normalized\afrr_aggregated_balancing_energy_bids_2026-05-23_2026-05-23.csv
+
+[activated_balancing_quantities] Activated balancing quantities [TR 17.1.E / A83]
+raw_files=1
+normalized_rows=0
+normalized_csv=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\ENTSOE\aFRR\normalized\afrr_activated_quantities_2026-05-23_2026-05-23.csv
+error=Acknowledgement: code=999; text=The combination of [DOCUMENT_TYPE=A83, BUSINESS_TYPE=A96] is not valid, or the requested data is not allowed to be fetched via this service.
+error=HTTP 400 at offset 0: <?xml version="1.0" encoding="UTF-8"?> | <Acknowledgement_MarketDocument | 	xmlns="urn:iec62325.351:tc57wg16:451-1:acknowledgementdocument:7:0"> | 	<mRID>c8f39cac-20e4-4</mRID> | 	<createdDateTime>2026-05-26T03:24:50Z</createdDateTime> | 	<sender_MarketParticipant.mRID codingScheme="A01">10X1001A1001A450</sender_MarketParticipant.mRID> | 	<sender_MarketParticipant.marketRole.type>A32</sender_MarketParticipant.marketRole.type> | 	<receiver_MarketParticipant.mRID codingScheme="A01">10X1001A1001A450</receiver_Ma
+
+[activated_balancing_prices] Prices of Activated Balancing Energy [TR 17.1.F / A84]
+raw_files=1
+normalized_rows=192
+normalized_csv=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\ENTSOE\aFRR\normalized\afrr_activated_prices_2026-05-23_2026-05-23.csv
+
+[contracted_reserve_quantities] Amount of Balancing Reserves Under Contract [TR 17.1.B / A81]
+raw_files=1
+normalized_rows=0
+normalized_csv=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\ENTSOE\aFRR\normalized\afrr_contracted_reserve_quantities_2026-05-23_2026-05-23.csv
+error=Acknowledgement: code=999; text=No matching data found for Data item AMOUNT_AND_PRICES_PAID_OF_BALANCING_RESERVES_UNDER_CONTRACT_R3 [17.1.B&C] (10YSK-SEPS-----K) and interval 2026-05-23T00:00:00Z/2026-05-24T00:00:00Z.
+
+[procured_balancing_capacity] Procured Balancing Capacity [GL EB 12.3.F / A15]
+raw_files=2
+normalized_rows=3456
+normalized_csv=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\ENTSOE\aFRR\normalized\afrr_procured_balancing_capacity_2026-05-23_2026-05-23.csv
+
+[contracted_reserve_prices] Prices of Balancing Reserves Under Contract [TR 17.1.C / A89]
+raw_files=1
+normalized_rows=0
+normalized_csv=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\ENTSOE\aFRR\normalized\afrr_contracted_reserve_prices_2026-05-23_2026-05-23.csv
+error=Acknowledgement: code=999; text=The combination of [DOCUMENT_TYPE=A89, BUSINESS_TYPE=A96] is not valid, or the requested data is not allowed to be fetched via this service.
+error=HTTP 400 at offset 0: <?xml version="1.0" encoding="UTF-8"?> | <Acknowledgement_MarketDocument | 	xmlns="urn:iec62325.351:tc57wg16:451-1:acknowledgementdocument:7:0"> | 	<mRID>e631d14f-aa3d-4</mRID> | 	<createdDateTime>2026-05-26T03:24:52Z</createdDateTime> | 	<sender_MarketParticipant.mRID codingScheme="A01">10X1001A1001A450</sender_MarketParticipant.mRID> | 	<sender_MarketParticipant.marketRole.type>A32</sender_MarketParticipant.marketRole.type> | 	<receiver_MarketParticipant.mRID codingScheme="A01">10X1001A1001A450</receiver_Ma
+

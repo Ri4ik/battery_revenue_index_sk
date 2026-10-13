@@ -1,0 +1,33 @@
+ENTSO-E aFRR import
+domain=10YSK-SEPS-----K
+date_from=2026-02-08
+date_to=2026-02-28
+
+[procured_balancing_capacity] Procured Balancing Capacity [GL EB 12.3.F / A15]
+raw_files=5
+normalized_rows=29952
+normalized_csv=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\ENTSOE\aFRR\normalized\afrr_procured_balancing_capacity_2026-02-08_2026-02-28.csv
+
+capacity_files=21
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-08.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-09.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-10.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-11.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-12.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-13.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-14.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-15.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-16.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-17.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-18.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-19.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-20.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-21.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-22.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-23.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-24.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-25.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-26.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-27.csv
+capacity=C:\Users\Даниил Бережной\Downloads\battery_revenue_index-main\marketdata\aFRR_capacity\afrr_capacity_2026-02-28.csv
+

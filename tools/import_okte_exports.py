@@ -10,6 +10,7 @@ import pandas as pd
 
 SYSTEM_IMBALANCE_API_URL = "https://iszo.okte.sk/api/v1/SystemImbalance"
 DEMAND_SUPPLY_BALANCE_API_URL = "https://iszo.okte.sk/api/v1/DemandSupplyBalance"
+IDM_RESULTS_API_URL = "https://isot.okte.sk/api/v1/idm/results"
 
 
 def _to_num(series: pd.Series) -> pd.Series:
@@ -23,9 +24,9 @@ def _ensure_dir(path: str):
     os.makedirs(path, exist_ok=True)
 
 
-def _fetch_okte_json(url: str, params: dict) -> list:
+def _fetch_okte_json(url: str, params: dict, timeout: int = 60) -> list:
     query = urlencode(params)
-    with urlopen(f"{url}?{query}") as response:
+    with urlopen(f"{url}?{query}", timeout=timeout) as response:
         charset = response.headers.get_content_charset() or "utf-8"
         payload = response.read().decode(charset)
     parsed = json.loads(payload)
@@ -179,6 +180,167 @@ def import_demand_supply_balance_api(workspace: str, date_from: str, date_to: st
     print(f"Demand/Supply balance imported from API: {out_file}")
 
 
+def _extract_idm_results_rows(raw: list, price_field: str) -> pd.DataFrame:
+    rows = []
+    for item in raw:
+        delivery_day = item.get("deliveryDay")
+        period = item.get("period")
+        if delivery_day is None or period is None:
+            continue
+        price = item.get(price_field)
+        if price is None and price_field != "priceWeightedAverage":
+            price = item.get("priceWeightedAverage")
+        if price is None:
+            price = item.get("priceAverage")
+        rows.append(
+            {
+                "deliveryDay": delivery_day,
+                "period": period,
+                "deliveryStart": item.get("deliveryStart"),
+                "deliveryEnd": item.get("deliveryEnd"),
+                "price": price,
+                "priceWeightedAverage": item.get("priceWeightedAverage"),
+                "priceAverage": item.get("priceAverage"),
+                "lastPrice": item.get("lastPrice"),
+                "minimalPrice": item.get("minimalPrice"),
+                "maximalPrice": item.get("maximalPrice"),
+                "successfulVolume": item.get("successfulVolume"),
+                "purchaseSuccessfulVolume": item.get("purchaseSuccessfulVolume"),
+                "saleSuccessfulVolume": item.get("saleSuccessfulVolume"),
+            }
+        )
+
+    if not rows:
+        return pd.DataFrame(columns=["deliveryDay", "period", "timestamp", "price"])
+
+    out = pd.DataFrame(rows)
+    out["deliveryDay"] = pd.to_datetime(out["deliveryDay"], errors="coerce").dt.date
+    out["period"] = pd.to_numeric(out["period"], errors="coerce")
+    out["price"] = pd.to_numeric(out["price"], errors="coerce")
+    for col in [
+        "priceWeightedAverage",
+        "priceAverage",
+        "lastPrice",
+        "minimalPrice",
+        "maximalPrice",
+        "successfulVolume",
+        "purchaseSuccessfulVolume",
+        "saleSuccessfulVolume",
+    ]:
+        out[col] = pd.to_numeric(out[col], errors="coerce")
+    out = out.dropna(subset=["deliveryDay", "period"]).sort_values(["deliveryDay", "period"])
+    return out
+
+
+def import_idm_results_api(
+    workspace: str,
+    date_from: str,
+    date_to: str,
+    product_type: int,
+    market_name: str = None,
+    price_field: str = "priceWeightedAverage",
+):
+    if product_type not in (15, 60):
+        raise ValueError("product_type must be 15 or 60")
+    if market_name is None:
+        market_name = "IDM15" if product_type == 15 else "IDM60"
+
+    params = {
+        "deliveryDayFrom": date_from,
+        "deliveryDayTo": date_to,
+        "productType": product_type,
+    }
+    day_span = len(pd.date_range(start=date_from, end=date_to, freq="D"))
+    if day_span > 31:
+        raw = []
+        days = pd.date_range(start=date_from, end=date_to, freq="D").strftime("%Y-%m-%d")
+        for idx, day in enumerate(days, 1):
+            raw.extend(
+                _fetch_okte_json(
+                    IDM_RESULTS_API_URL,
+                    {
+                        "deliveryDayFrom": day,
+                        "deliveryDayTo": day,
+                        "productType": product_type,
+                    },
+                )
+            )
+            if idx % 50 == 0 or idx == len(days):
+                print(f"OKTE IDM productType={product_type}: fetched {idx}/{len(days)} days")
+    else:
+        try:
+            raw = _fetch_okte_json(IDM_RESULTS_API_URL, params)
+        except HTTPError as exc:
+            if exc.code != 400:
+                raise
+            raw = []
+            for day in pd.date_range(start=date_from, end=date_to, freq="D").strftime("%Y-%m-%d"):
+                raw.extend(
+                    _fetch_okte_json(
+                        IDM_RESULTS_API_URL,
+                        {
+                            "deliveryDayFrom": day,
+                            "deliveryDayTo": day,
+                            "productType": product_type,
+                        },
+                    )
+                )
+    try:
+        len(raw)
+    except NameError:
+        raw = _fetch_okte_json(IDM_RESULTS_API_URL, params)
+
+    rows = _extract_idm_results_rows(raw, price_field=price_field)
+    if rows.empty:
+        raise ValueError(f"OKTE IDM results API returned no rows for productType={product_type}.")
+
+    raw_dir = Path(workspace) / "marketdata" / "OKTE"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    raw_file = raw_dir / f"idm_results_product{product_type}_{date_from}_{date_to}.csv"
+    rows.to_csv(raw_file, index=False)
+
+    out_dir = Path(workspace) / "marketdata" / market_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    points = 96 if product_type == 15 else 24
+    freq = "15min" if product_type == 15 else "1H"
+
+    written = 0
+    for day, group in rows.groupby("deliveryDay"):
+        group = group.copy()
+        group["period"] = group["period"].astype(int)
+        daily = group.groupby("period", as_index=False)["price"].mean()
+        daily = daily[(daily["period"] >= 1) & (daily["period"] <= points)]
+        daily["timestamp"] = pd.to_datetime(str(day)) + pd.to_timedelta(
+            (daily["period"] - 1) * (15 if product_type == 15 else 60), unit="m"
+        )
+        expected_idx = pd.date_range(start=f"{day} 00:00:00", periods=points, freq=freq)
+        out = (
+            daily[["timestamp", "price"]]
+            .set_index("timestamp")
+            .reindex(expected_idx)
+            .rename_axis("timestamp")
+            .reset_index()
+        )
+        out["price"] = out["price"].interpolate(method="linear").ffill().bfill()
+        if product_type == 60:
+            out = (
+                out.set_index("timestamp")
+                .resample("15min")
+                .ffill()
+                .reindex(pd.date_range(start=f"{day} 00:00:00", periods=96, freq="15min"))
+                .rename_axis("timestamp")
+                .reset_index()
+            )
+            out["price"] = out["price"].ffill().bfill()
+        out.to_csv(out_dir / f"{market_name}_{day}.csv", index=False)
+        written += 1
+
+    print(
+        f"OKTE IDM productType={product_type} imported as {market_name}: "
+        f"{written} day(s), raw={raw_file}"
+    )
+
+
 def import_dam_overview(path: str, workspace: str):
     df = pd.read_csv(path, sep=";", encoding="utf-8-sig")
     df["Delivery day"] = pd.to_datetime(df["Delivery day"], format="%d.%m.%Y")
@@ -217,10 +379,10 @@ def import_idm_15min(path: str, workspace: str, column_name: str = "Weighted ave
     df[column_name] = _to_num(df[column_name])
     df = df.dropna(subset=["Delivery day", "Period number", column_name])
 
+    out_idm15 = os.path.join(workspace, "marketdata", "IDM15")
     out_id1 = os.path.join(workspace, "marketdata", "ID1")
-    out_ida1 = os.path.join(workspace, "marketdata", "IDA1")
+    _ensure_dir(out_idm15)
     _ensure_dir(out_id1)
-    _ensure_dir(out_ida1)
 
     for day, g in df.groupby(df["Delivery day"].dt.date):
         g = g.sort_values("Period number").copy()
@@ -235,11 +397,10 @@ def import_idm_15min(path: str, workspace: str, column_name: str = "Weighted ave
         )
         out["price"] = out["price"].interpolate(method="linear").ffill().bfill()
 
-        # ID1 input
+        # Current IDM15 input.
+        out.to_csv(os.path.join(out_idm15, f"IDM15_{day}.csv"), index=False)
+        # Legacy ID1 input for older result folders/scripts.
         out.to_csv(os.path.join(out_id1, f"ID1_{day}.csv"), index=False)
-        # IDA1 fallback from same series
-        out_ida = out.rename(columns={"price": "0"})
-        out_ida.to_csv(os.path.join(out_ida1, f"IDA1 {day}.csv"), index=False)
 
 
 def import_idm_as_imb_proxy(path: str, workspace: str, column_name: str = "Weighted average price of all trades (EUR/MWh)"):
@@ -331,6 +492,21 @@ def main():
         help="Import Demand/Supply Balance API data and store raw csv.",
     )
     parser.add_argument(
+        "--fetch-idm-results",
+        action="store_true",
+        help="Import OKTE IDM results API for productType 15 and/or 60.",
+    )
+    parser.add_argument(
+        "--idm-product-types",
+        default="15,60",
+        help="Comma-separated OKTE IDM product types to import (15,60).",
+    )
+    parser.add_argument(
+        "--idm-price-field",
+        default="priceWeightedAverage",
+        help="Price field from OKTE IDM results (default: priceWeightedAverage).",
+    )
+    parser.add_argument(
         "--use-idm-as-imb-proxy",
         action="store_true",
         help="Fallback only: write IMB from IDM weighted prices.",
@@ -363,6 +539,21 @@ def main():
             date_from=args.date_from,
             date_to=args.date_to,
         )
+    if args.fetch_idm_results:
+        product_types = [
+            int(item.strip())
+            for item in args.idm_product_types.split(",")
+            if item.strip()
+        ]
+        for product_type in product_types:
+            import_idm_results_api(
+                workspace=workspace,
+                date_from=args.date_from,
+                date_to=args.date_to,
+                product_type=product_type,
+                market_name="IDM15" if product_type == 15 else "IDM60",
+                price_field=args.idm_price_field,
+            )
     print("OKTE import finished.")
 
 
