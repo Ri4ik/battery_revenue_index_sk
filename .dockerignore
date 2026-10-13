@@ -1,0 +1,12 @@
+.git
+.venv
+.idea
+.vscode
+**/__pycache__
+*.pyc
+*.log
+marketdata
+api_checks
+Jupyter Notebooks
+docs
+results/calc_watch.log
