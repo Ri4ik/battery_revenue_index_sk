@@ -1,45 +1,98 @@
-x-database-url: &database-url
-  DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-bri}:${POSTGRES_PASSWORD:-bri}@db:5432/${POSTGRES_DB:-battery_revenue_index}
+x-db-environment: &db-environment
+  PGHOST: db
+  PGPORT: "5432"
+  PGUSER: ${POSTGRES_USER:-bri}
+  PGPASSWORD: ${POSTGRES_PASSWORD:?Set a strong POSTGRES_PASSWORD in .env}
+  PGDATABASE: ${POSTGRES_DB:-battery_revenue_index}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-app: &app
+  image: battery-revenue-index-sk:${APP_VERSION:-local}
+  environment: *db-environment
+  logging: *logging
 
 services:
   db:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-bri}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bri}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a strong POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-battery_revenue_index}
     volumes:
       - pgdata:/var/lib/postgresql/data
-    # Reachable only from this machine (DBeaver/pgAdmin on localhost:5432), not from the network.
-    ports:
-      - "127.0.0.1:5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 5s
       retries: 20
     restart: unless-stopped
+    logging: *logging
 
-  # One-shot job: loads results/ JSON into the database (skips combos already imported).
-  importer:
-    build: .
-    image: battery-revenue-index-sk
-    environment: *database-url
-    command: python tools/import_results_to_db.py
+  migrate:
+    <<: *app
+    build:
+      context: .
+      target: production
+    command: ["python", "-m", "tools.migrate_results_db", "--backup-dir", "/backups"]
+    volumes:
+      - backups:/backups
     depends_on:
       db:
         condition: service_healthy
     restart: "no"
 
+  importer:
+    <<: *app
+    command: ["python", "-m", "tools.import_results_to_db"]
+    volumes:
+      - type: bind
+        source: ./results
+        target: /app/results
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
   dashboard:
-    image: battery-revenue-index-sk
-    environment: *database-url
-    ports:
-      - "5050:5050"
+    <<: *app
     depends_on:
       importer:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5050/readyz', timeout=6)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-http://localhost}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      dashboard:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *logging
 
 volumes:
   pgdata:
+  backups:
+  caddy_data:
+  caddy_config:

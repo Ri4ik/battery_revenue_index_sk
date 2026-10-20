@@ -1,0 +1,4 @@
+# Disabled example: do not install until a manual import has succeeded.
+# This assumes the deployment directory /opt/bri and Linux cron configured for UTC.
+# No crontab is installed by the application or by Docker Compose.
+# 0 6 * * * /usr/bin/flock -n /opt/bri/import.lock /usr/bin/docker compose --project-directory /opt/bri -f /opt/bri/docker-compose.yml run --rm --no-deps importer >> /opt/bri/import.log 2>&1

@@ -1,0 +1,26 @@
+# Isolated, disposable test DB; no host ports or deployment volumes.
+services:
+  testdb:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bri
+      POSTGRES_PASSWORD: isolated-tests-only
+      POSTGRES_DB: bri_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "bri", "-d", "bri_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  tests:
+    build:
+      context: .
+      target: test
+    environment:
+      TEST_DATABASE_URL: postgresql+psycopg2://bri:isolated-tests-only@testdb:5432/bri_test
+    volumes:
+      - ./results:/app/results:ro
+    depends_on:
+      testdb:
+        condition: service_healthy

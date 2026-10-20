@@ -1,0 +1,6 @@
+# Optional local database access for DBeaver/pgAdmin on this computer only.
+# Apply together with docker-compose.yml; do not include on a public deployment.
+services:
+  db:
+    ports:
+      - "127.0.0.1:15432:5432"

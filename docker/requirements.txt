@@ -1,14 +1,24 @@
-# Runtime dependencies for the web dashboard (tools/slovakia_revenue_dashboard.py).
-# Versions follow the project's requirements.txt; Flask 1.x needs the old
-# Jinja2/MarkupSafe/Werkzeug/itsdangerous line, otherwise it fails at import.
-numpy>=1.19,<1.20
-pandas>=1.1,<1.2
-plotly>=5.0,<5.12
-Flask>=1.1,<2
-Jinja2<3.0
-MarkupSafe<2.1
-Werkzeug<2.0
-itsdangerous<2.0
-gunicorn==20.1.0
-SQLAlchemy>=1.3,<1.4
-psycopg2-binary==2.9.9
+# Isolated web runtime. Calculation/notebook requirements are unchanged.
+Flask==3.1.3
+SQLAlchemy==2.0.55
+pandas==2.3.3
+numpy==2.2.6
+plotly==6.9.0
+gunicorn==26.2.0
+psycopg2-binary==2.9.13
+
+# Resolved transitive web dependencies (Linux Python 3.12).
+blinker==1.9.0
+click==8.5.0
+greenlet==3.5.6
+itsdangerous==2.2.0
+Jinja2==3.1.6
+MarkupSafe==3.0.4
+narwhals==2.27.1
+packaging==26.3
+python-dateutil==2.9.0.post0
+pytz==2026.5
+six==1.17.0
+typing_extensions==4.16.0
+tzdata==2026.5
+Werkzeug==3.1.9

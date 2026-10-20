@@ -1,5 +1,13 @@
 .git
 .venv
+.web-venv
+.env
+.env.*
+backups
+artifacts
+raw
+reports
+results
 .idea
 .vscode
 **/__pycache__
@@ -9,4 +17,3 @@ marketdata
 api_checks
 Jupyter Notebooks
 docs
-results/calc_watch.log

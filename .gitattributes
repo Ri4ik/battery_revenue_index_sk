@@ -1,0 +1,5 @@
+# Shell/config files must retain Unix line endings when checked out on Windows.
+Dockerfile text eol=lf
+docker/*.sh text eol=lf
+docker/Caddyfile text eol=lf
+docker/cron.example text eol=lf

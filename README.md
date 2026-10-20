@@ -1,5 +1,14 @@
 # Battery Revenue Index (Slovensko)
 
+## Docker web release
+
+Deployment, normalized database migration, backups and the disabled cron example:
+[DEPLOYMENT.md](DEPLOYMENT.md). Attribution and license: [NOTICE.md](NOTICE.md).
+Data permissions still to confirm before public release: [DATA_SOURCES.md](DATA_SOURCES.md).
+The web runtime has separate dependencies in `docker/requirements.txt`; the old copied
+`.venv` must be recreated for each machine. The default website compares independent
+markets, publishes only the annual dataset, and does not run calculations automatically.
+
 Projekt je zamerany na vypocet vynosov baterioveho uloziska (BESS) pre slovenske trhy a na vizualizaciu vysledkov vo webovom dashboarde.
 
 ## Co je aktualne implementovane
@@ -160,4 +169,4 @@ Potom otvorte v prehliadaci: `http://127.0.0.1:5050/`
 
 ## Licencia
 
-GNU GPL, pozri `LICENSE`.
+GNU GPL v3, pozri [LICENSE.txt](LICENSE.txt).

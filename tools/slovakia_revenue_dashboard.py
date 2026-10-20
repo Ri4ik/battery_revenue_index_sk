@@ -1,5 +1,6 @@
 """
-Web dashboard for Slovakia single-market JSON results (daily revenues).
+Web dashboard for Slovakia single-market results.
+Modified 2026-10-20: published datasets and independent market comparisons.
 
 Run from repository root:
     python tools/slovakia_revenue_dashboard.py
@@ -7,8 +8,6 @@ Run from repository root:
 Then open http://127.0.0.1:5050/ in a browser.
 """
 
-import json
-import re
 import sys
 import webbrowser
 from datetime import datetime
@@ -22,12 +21,13 @@ if str(_REPO) not in sys.path:
 
 import pandas as pd
 import plotly.graph_objects as go
-from flask import Flask, redirect, render_template_string, request, url_for
+from flask import Flask, abort, jsonify, render_template_string, request, Response
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
+from tools.result_files import RESULT_NAME_RE, BATTERY_SUFFIX_RE, folder_has_results, parse_result_files
 
-RESULT_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_results_([A-Za-z0-9+]+)\.json$")
-BATTERY_SUFFIX_RE = re.compile(r"^(.+)_(\d+)_(\d+)$")
-
-SLOVAKIA_MARKET_LIST = ["DA", "IDM15", "IDM60", "IMB", "aFRR"]
+SLOVAKIA_MARKET_LIST = ["DA", "IDA1", "ID1", "IDM15", "IDM60", "IMB", "aFRR"]
+HIDDEN_MARKETS = {"FCR", "FRC"}
 DEFAULT_RESULTS_BASE = "Slovakia_2025-2026 (01.03)"
 SYSTEM_TYPE_OPTIONS = (1, 2)
 CYCLE_LIMIT_OPTIONS = (1, 2)
@@ -39,12 +39,6 @@ def _parse_choice(val, options: Tuple[int, ...], default: int) -> int:
     except (TypeError, ValueError):
         return default
     return x if x in options else default
-
-
-def folder_has_results(folder: Path) -> bool:
-    if not folder.is_dir():
-        return False
-    return any(RESULT_NAME_RE.match(f.name) for f in folder.iterdir() if f.suffix == ".json")
 
 
 def discover_result_bases(results_dir: Path) -> List[str]:
@@ -83,34 +77,6 @@ def available_battery_combos(results_dir: Path, base: str) -> List[Tuple[int, in
     return combos
 
 
-def parse_result_files(folder: Path) -> pd.DataFrame:
-    rows: List[dict] = []
-    for f in sorted(folder.glob("*_results_*.json")):
-        m = RESULT_NAME_RE.match(f.name)
-        if not m:
-            continue
-        day_s, market = m.group(1), m.group(2)
-        with open(f, "r", encoding="utf-8") as fp:
-            payload = json.load(fp)
-        dr = (payload.get("results") or {}).get("daily_revenue") or {}
-        val = dr.get("Total")
-        if val is None:
-            val = dr.get(market)
-        if val is None:
-            for k, v in dr.items():
-                if k != "Total" and isinstance(v, (int, float)):
-                    val = v
-                    break
-        if val is None:
-            continue
-        rows.append({"day": day_s, "market": market, "daily_revenue_eur": float(val)})
-    if not rows:
-        return pd.DataFrame()
-    df = pd.DataFrame(rows)
-    df["day"] = pd.to_datetime(df["day"])
-    return df
-
-
 def folder_date_bounds(folder: Path) -> Optional[Tuple[pd.Timestamp, pd.Timestamp]]:
     days: List[pd.Timestamp] = []
     for f in folder.glob("*_results_*.json"):
@@ -136,107 +102,54 @@ def pick_default_base(results_dir: Path) -> str:
 
 
 def build_figure(
-    df: pd.DataFrame,
-    markets: List[str],
-    mode: str,
-    ma_window: Optional[int],
-    show_cumulative: bool,
-    aggregation: str,
-    system_type: int = 1,
-    cycle_limit: int = 1,
+    df: pd.DataFrame, markets: List[str], mode: str, ma_window: Optional[int],
+    show_cumulative: bool, aggregation: str, system_type: int = 1, cycle_limit: int = 1,
 ) -> go.Figure:
+    """Compare independent market scenarios. Missing days remain gaps, never zero."""
     sub = df[df["market"].isin(markets)].copy()
+    fig = go.Figure()
     if sub.empty:
-        fig = go.Figure()
         fig.update_layout(title="Pre vybrané trhy alebo obdobie nie sú dostupné údaje")
         return fig
-
-    pivot = sub.pivot_table(
-        index="day", columns="market", values="daily_revenue_eur", aggfunc="sum"
-    ).fillna(0)
-    pivot = pivot.sort_index()
-    for m in markets:
-        if m not in pivot.columns:
-            pivot[m] = 0.0
-    pivot = pivot[[c for c in markets if c in pivot.columns]]
-    # Base unit in source JSON: EUR/day (daily revenue).
+    raw = sub.pivot(index="day", columns="market", values="daily_revenue_eur")
+    # Use the entire selected data range, including markets missing at its boundaries.
+    raw = raw.reindex(pd.date_range(df["day"].min(), df["day"].max(), freq="D"))
+    raw = raw.reindex(columns=markets)
+    pivot = raw.copy()
     if aggregation == "annualized":
-        # Convert daily EUR to annualized kEUR/MW/year.
-        # Current benchmark uses 1 MW systems, so normalization by MW is 1.
         pivot = pivot * 365.0 / 1000.0
-        y_title = "Anualizovaný výnos batérie (kEUR/MW/rok)"
-    elif aggregation == "avg30":
-        pivot = pivot.rolling(window=30, min_periods=1).mean()
-        y_title = "30-dňový priemerný výnos batérie (EUR/deň)"
-    elif aggregation == "avg365":
-        pivot = pivot.rolling(window=365, min_periods=1).mean()
-        y_title = "365-dňový priemerný výnos batérie (EUR/deň)"
+        y_title = "Anualizovaný výnos (kEUR/MW/rok)"
+    elif aggregation in ("avg30", "avg365"):
+        window = 30 if aggregation == "avg30" else 365
+        pivot = pivot.rolling(window, min_periods=1).mean().where(raw.notna())
+        y_title = f"{window}-dňový priemer dostupných dní (EUR/deň)"
     else:
         y_title = "Denný výnos (EUR/deň)"
-
-    total = pivot.sum(axis=1)
-
-    fig = go.Figure()
-    if mode == "stack":
-        for col in pivot.columns:
-            fig.add_trace(
-                go.Bar(x=pivot.index, y=pivot[col], name=col, hovertemplate="%{y:.2f} €<extra></extra>")
-            )
-        fig.update_layout(barmode="stack")
-    else:
-        for col in pivot.columns:
-            fig.add_trace(
-                go.Scatter(
-                    x=pivot.index,
-                    y=pivot[col],
-                    mode="lines+markers",
-                    name=col,
-                    hovertemplate="%{y:.2f} €<extra></extra>",
-                )
-            )
-
-    if ma_window and ma_window > 1:
-        ma = total.rolling(window=ma_window, min_periods=1).mean()
-        fig.add_trace(
-            go.Scatter(
-                x=pivot.index,
-                y=ma,
-                name="Súčet trhov (%d-dňový priemer)" % ma_window,
-                line=dict(width=3, dash="dash"),
-                hovertemplate="%{y:.2f} €<extra></extra>",
-            )
-        )
-
-    if show_cumulative:
-        cum = total.cumsum()
-        fig.add_trace(
-            go.Scatter(
-                x=pivot.index,
-                y=cum,
-                name="Kumulatívny súčet",
-                yaxis="y2",
-                line=dict(width=2),
-                hovertemplate="%{y:.2f} €<extra></extra>",
-            )
-        )
-        fig.update_layout(
-            yaxis=dict(title=y_title),
-            yaxis2=dict(title="Kumulatívny súčet", overlaying="y", side="right", showgrid=False),
-        )
-    else:
-        fig.update_layout(yaxis=dict(title=y_title))
-
+    for market in markets:
+        values = pivot[market]
+        if mode in ("group", "stack"):
+            fig.add_trace(go.Bar(x=pivot.index, y=values, name=market))
+        else:
+            fig.add_trace(go.Scatter(x=pivot.index, y=values, name=market,
+                                    mode="lines+markers", connectgaps=False))
+        if ma_window and ma_window > 1:
+            mean = values.rolling(ma_window, min_periods=1).mean().where(raw[market].notna())
+            fig.add_trace(go.Scatter(x=pivot.index, y=mean, connectgaps=False,
+                                    name=f"{market} ({ma_window}-dňový priemer)",
+                                    line=dict(dash="dash")))
+        if show_cumulative:
+            # Accumulate raw EUR, independently per market, even for annualized display.
+            fig.add_trace(go.Scatter(x=raw.index, y=raw[market].cumsum(), yaxis="y2",
+                                    connectgaps=False, name=f"{market} kumulatívne (EUR)"))
     fig.update_layout(
-        title=(
-            f"Slovenský index výnosov batérií — {system_type} h, "
-            f"{cycle_limit} cyklov/deň"
-        ),
-        xaxis_title="Dátum",
+        barmode="group", title=f"Slovakia Battery Revenue Index — {system_type} h, {cycle_limit} cyklov/deň",
+        xaxis_title="Dátum", yaxis=dict(title=y_title), template="plotly_white",
+        height=560, hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        template="plotly_white",
-        height=560,
-        hovermode="x unified",
     )
+    if show_cumulative:
+        fig.update_layout(yaxis2=dict(title="Kumulatívny výnos trhu (EUR)", overlaying="y",
+                                     side="right", showgrid=False))
     return fig
 
 
@@ -246,7 +159,7 @@ PAGE = """
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Slovenský index výnosov batérií</title>
+  <title>Slovakia Battery Revenue Index</title>
   <style>
     :root {
       --bg: #f4f8fc;
@@ -373,15 +286,11 @@ PAGE = """
 </head>
 <body>
   <div class="container">
-    <h1 class="title">ISEA Index výnosov batérií</h1>
-    <p class="muted">
-      Slovenská verzia dashboardu s dátami z {% if use_db %}databázy{% else %}<code>results/</code>{% endif %}.
-      Inšpirácia dizajnom:
-      <a href="https://battery-charts.de/revenue-index/#daily-revenues">battery-charts.de</a>.
-    </p>
+    <h1 class="title">Slovakia Battery Revenue Index</h1>
 
     <section class="card controls">
       <form method="get" action="{{ url }}" id="dashboard-form">
+        <input type="hidden" name="base" value="{{ results_base }}"/>
         <div class="battery-filters">
           <div class="control-group">
             <label>Typ systému</label>
@@ -402,12 +311,7 @@ PAGE = """
         </div>
 
         {% if missing_combo %}
-        <div class="missing-data">
-          Pre kombináciu <strong>{{ system_type }} h / {{ cycle_limit }} cyklov</strong> ešte nie sú
-          vypočítané výsledky v <code>results/{{ results_base }}_{{ system_type }}_{{ cycle_limit }}/</code>{% if use_db %} alebo nie sú nahraté do databázy{% endif %}.
-          Spusti: <code>python calculation_config_slovakia.py --start-day 2025-03-01 --end-day 2026-03-01 --resume --resume-parent "results/{{ results_base }}" --only-configs {{ system_type }}_{{ cycle_limit }} --workers 11</code>
-          {% if use_db %}a potom <code>python tools/import_results_to_db.py</code>{% endif %}
-        </div>
+        <p class="missing-data">Pre vybranú kombináciu batérie nie sú dostupné výsledky.</p>
         {% endif %}
 
         <div class="control-group">
@@ -423,7 +327,7 @@ PAGE = """
         <div class="control-group">
           <label>Typ grafu</label>
           <div class="inline-options">
-            <label><input type="radio" name="mode" value="stack" {% if mode == 'stack' %}checked{% endif %}/> Skladané stĺpce</label>
+            <label><input type="radio" name="mode" value="group" {% if mode == 'group' %}checked{% endif %}/> Zoskupené stĺpce</label>
             <label><input type="radio" name="mode" value="lines" {% if mode == 'lines' %}checked{% endif %}/> Čiary</label>
           </div>
         </div>
@@ -452,7 +356,7 @@ PAGE = """
         </div>
 
         <div class="control-group">
-          <label>Kĺzavý priemer súčtu (dni)</label>
+          <label>Kĺzavý priemer každého trhu (dni)</label>
           <select name="ma">
           {% for w in ma_options %}
           <option value="{{ w }}" {% if w == ma %}selected{% endif %}>{{ w }}</option>
@@ -463,7 +367,7 @@ PAGE = """
         <div class="control-group">
           <label>Doplnky</label>
           <div class="inline-options">
-            <label><input type="checkbox" name="cum" value="1" {% if cum %}checked{% endif %}/> Zobraziť kumulatívny súčet na 2. osi</label>
+            <label><input type="checkbox" name="cum" value="1" {% if cum %}checked{% endif %}/> Kumulatívny výnos každého trhu (EUR)</label>
           </div>
         </div>
 
@@ -487,7 +391,7 @@ PAGE = """
 
     {% if summary_rows %}
     <table>
-      <caption>Súčet za vybrané obdobie (€)</caption>
+      <caption>Výnos každého trhu za dostupné dni (€)</caption>
       <thead><tr><th>Trh</th><th>Súčet EUR</th></tr></thead>
       <tbody>
         {% for m, v in summary_rows %}
@@ -496,6 +400,10 @@ PAGE = """
       </tbody>
     </table>
     {% endif %}
+    <footer>
+      <p>GNU GPL v3.
+      <a href="{{ url_for_about }}">O projekte, autori a zdroje</a> · <a href="/license">Licencia</a></p>
+    </footer>
   </div>
 </body>
 </html>
@@ -512,39 +420,83 @@ def create_app(repo: Path) -> Flask:
 
     engine = results_db.get_engine() if results_db.database_url() else None
     use_db = engine is not None
+    app.extensions["results_engine"] = engine
+
+    def published_bases():
+        if use_db:
+            return results_db.list_datasets(engine)
+        # File-mode is for local previews, with the same publication boundary.
+        return [b for b in discover_result_bases(results_dir) if b == DEFAULT_RESULTS_BASE]
+
+    @app.get("/healthz")
+    def health():
+        return jsonify(status="ok")
+
+    @app.get("/readyz")
+    def ready():
+        try:
+            if use_db:
+                with engine.connect() as conn:
+                    conn.execute(select(results_db.daily_revenue.c.day).limit(1))
+            if not published_bases():
+                return jsonify(status="unavailable"), 503
+            return jsonify(status="ready")
+        except (SQLAlchemyError, OSError):
+            app.logger.exception("Readiness check failed")
+            return jsonify(status="unavailable"), 503
+
+    @app.get("/license")
+    def license_text():
+        return Response((repo / "LICENSE.txt").read_bytes(), mimetype="text/plain")
+
+    @app.get("/about")
+    def about():
+        return Response((repo / "docker" / "about.html").read_text(encoding="utf-8"), mimetype="text/html")
+
+    @app.after_request
+    def security_headers(response):
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+    @app.errorhandler(SQLAlchemyError)
+    def database_error(error):
+        app.logger.error("Database unavailable: %s", type(error).__name__)
+        return "Služba je dočasne nedostupná.", 503
 
     def default_base() -> str:
-        if not use_db:
-            return pick_default_base(results_dir)
-        bases = results_db.list_datasets(engine)
+        bases = published_bases()
         if DEFAULT_RESULTS_BASE in bases:
             return DEFAULT_RESULTS_BASE
         if bases:
             return bases[0]
-        raise ValueError("No result bases found.")
+        raise ValueError("No published results.")
 
     def load_combo(base: str, system_type: int, cycle_limit: int) -> pd.DataFrame:
         if use_db:
-            return results_db.load_daily_revenue(engine, base, system_type, cycle_limit)
-        folder_path = resolve_battery_result_folder(
-            results_dir, base, system_type, cycle_limit
-        )
-        if folder_path is None or not folder_has_results(folder_path):
-            return pd.DataFrame()
-        return parse_result_files(folder_path)
+            df = results_db.load_daily_revenue(engine, base, system_type, cycle_limit)
+        else:
+            folder_path = resolve_battery_result_folder(
+                results_dir, base, system_type, cycle_limit
+            )
+            if folder_path is None or not folder_has_results(folder_path):
+                return pd.DataFrame()
+            df = parse_result_files(folder_path)
+        # Apply before deriving filters, dates, chart traces and summary rows.
+        if not df.empty:
+            df = df.loc[~df["market"].str.upper().isin(HIDDEN_MARKETS)].copy()
+        return df
 
     @app.route("/")
     def index():
         try:
             results_base = request.args.get("base") or default_base()
         except ValueError:
-            return (
-                "<h1>Chýbajú výsledky</h1><p>Nenašli sa žiadne výsledky "
-                + ("v databáze." if use_db else "v priečinku results/ "
-                   "(JSON <code>YYYY-MM-DD_results_*.json</code>).")
-                + "</p>",
-                404,
-            )
+            return "<h1>Chýbajú výsledky</h1><p>Zatiaľ nie sú dostupné publikované výsledky.</p>", 404
+
+        if results_base not in published_bases():
+            abort(404)
 
         system_type = _parse_choice(
             request.args.get("system_type"), SYSTEM_TYPE_OPTIONS, 1
@@ -564,12 +516,12 @@ def create_app(repo: Path) -> Flask:
         else:
             available_markets = set(df["market"].unique())
             all_markets = [m for m in SLOVAKIA_MARKET_LIST if m in available_markets]
-            extra_markets = sorted(available_markets - set(all_markets) - {"ID1", "IDA1"})
+            extra_markets = sorted(available_markets - set(all_markets))
             all_markets.extend(extra_markets)
             dmin = df["day"].min().date()
             dmax = df["day"].max().date()
 
-        selected = request.args.getlist("markets")
+        selected = list(dict.fromkeys(m for m in request.args.getlist("markets") if m in all_markets))
         if not selected:
             selected = list(all_markets)
 
@@ -581,15 +533,17 @@ def create_app(repo: Path) -> Flask:
         except ValueError:
             start_d, end_d = dmin, dmax
 
-        mode = request.args.get("mode") or "stack"
-        if mode not in ("stack", "lines"):
-            mode = "stack"
+        if start_d > end_d or (end_d - start_d).days > 3660:
+            abort(400, "Neplatný rozsah dátumov (maximum 10 rokov).")
+        mode = request.args.get("mode") or "lines"
+        if mode == "stack":
+            mode = "group"  # Existing links no longer stack independent scenarios.
+        if mode not in ("group", "lines"):
+            mode = "lines"
         agg = request.args.get("agg") or "absolute"
         if agg not in ("absolute", "avg30", "avg365", "annualized"):
             agg = "absolute"
-        ma = int(request.args.get("ma") or "1")
-        if ma not in (1, 3, 7, 14, 30):
-            ma = 1
+        ma = _parse_choice(request.args.get("ma"), (1, 3, 7, 14, 30), 1)
         cum = request.args.get("cum") == "1"
 
         if df.empty:
@@ -620,6 +574,7 @@ def create_app(repo: Path) -> Flask:
 
         return render_template_string(
             PAGE,
+            url_for_about="/about",
             url=request.path,
             results_base=results_base,
             system_type=system_type,
