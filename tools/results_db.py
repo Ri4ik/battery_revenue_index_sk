@@ -100,6 +100,40 @@ def replace_combo(
     return len(rows)
 
 
+def upsert_rows(
+    engine, dataset: str, system_type: int, cycle_limit: int, df: pd.DataFrame
+) -> int:
+    """Insert or replace single (day, market) rows of one combo; other rows stay untouched."""
+    if df.empty:
+        return 0
+    keys = {(pd.Timestamp(r.day).date(), r.market) for r in df.itertuples(index=False)}
+    combo = and_(
+        daily_revenue.c.dataset == dataset,
+        daily_revenue.c.system_type == system_type,
+        daily_revenue.c.cycle_limit == cycle_limit,
+    )
+    rows = [
+        {
+            "dataset": dataset,
+            "system_type": system_type,
+            "cycle_limit": cycle_limit,
+            "day": pd.Timestamp(r.day).date(),
+            "market": r.market,
+            "daily_revenue_eur": float(r.daily_revenue_eur),
+        }
+        for r in df.itertuples(index=False)
+    ]
+    with engine.begin() as conn:
+        for day, market in keys:
+            conn.execute(
+                daily_revenue.delete().where(
+                    and_(combo, daily_revenue.c.day == day, daily_revenue.c.market == market)
+                )
+            )
+        conn.execute(daily_revenue.insert(), rows)
+    return len(rows)
+
+
 def list_datasets(engine) -> List[str]:
     q = select([daily_revenue.c.dataset]).distinct()
     with engine.connect() as conn:

@@ -33,3 +33,6 @@ api_checks/**/sample_response.*
 # OS files
 .DS_Store
 Thumbs.db
+
+# Manually supplied data for the daily updater (SEPS/Damas XLSX)
+inbox/

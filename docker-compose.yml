@@ -25,6 +25,8 @@ services:
     build: .
     image: battery-revenue-index-sk
     environment: *database-url
+    volumes:
+      - results:/app/results
     command: python tools/import_results_to_db.py
     depends_on:
       db:
@@ -41,5 +43,26 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # Daily data download + recalculation, started by cron:
+  #   docker compose run --rm updater
+  # Manually supplied SEPS/Damas XLSX files go into ./inbox on the host.
+  updater:
+    image: battery-revenue-index-sk
+    profiles: ["jobs"]
+    user: root
+    environment:
+      <<: *database-url
+      ENTSOE_API_KEY: ${ENTSOE_API_KEY:-}
+    volumes:
+      - results:/app/results
+      - marketdata:/app/marketdata
+      - ./inbox:/app/inbox
+    command: python tools/daily_update.py
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   pgdata:
+  results:
+  marketdata:
