@@ -42,6 +42,85 @@ def _parse_only_configs(unknown_args):
     return None
 
 
+def build_configs(energy, cycles):
+    """Battery and market configuration for one Slovak benchmark combo (energy h, cycles/day)."""
+    market_list = ["DA", "IDM15", "IDM60", "IMB", "FCR", "aFRR"]
+
+    battery_config = {
+        "energy": energy,
+        "power": 1,
+        "cycle_limit": cycles,
+        "service_life": 10,
+        "efficiency": 0.95,
+        "maxSOC": 1,
+        "minSOC": 0,
+        "startSOC": 0.5,
+        "DoD": 1,
+        "costs": 250,
+    }
+
+    market_config = {
+        "DA": {
+            "t_delivery": 1,
+            "power_share": 1,
+            "capture_rate": 1,
+            "capacity_share": 1,
+        },
+        "IDM15": {
+            "t_delivery": 0.25,
+            "power_share": 1,
+            "capture_rate": 1,
+            "capacity_share": 1,
+        },
+        "IDM60": {
+            "t_delivery": 0.25,
+            "power_share": 1,
+            "capture_rate": 1,
+            "capacity_share": 1,
+        },
+        "IMB": {
+            "t_delivery": 0.25,
+            "power_share": 1,
+            "capture_rate": 1,
+            "capacity_share": 1,
+        },
+        "FCR": {
+            "t_delivery": 4,
+            "power_share": 1,
+            "capture_rate": 1,
+            "capacity_share": 1,
+            "cycle_share": 0.5,
+        },
+        "aFRR Capacity": {
+            "t_delivery": 4,
+            "power_share": min(1, energy / (battery_config["power"] * 4)),
+            "capture_rate": 1,
+            "capacity_share": 1,
+        },
+        "aFRR Energy": {
+            "t_delivery": 0.25,
+            "power_share": min(1, energy / (battery_config["power"] * 4)),
+            "capture_rate": 1,
+            "capacity_share": 1,
+            "init_position": 0.05,
+            "cycle_share": 1,
+            "source": "seps_damas",
+        },
+    }
+
+    aging_costs = (
+        battery_config["costs"]
+        * 1000
+        / (
+            battery_config["service_life"]
+            * battery_config["cycle_limit"]
+            * 365
+        )
+    )
+    battery_config["aging_costs"] = aging_costs
+    return market_list, battery_config, market_config
+
+
 def _run_day(day, battery_config, market_config, result_folder, market_list):
     cfg = copy.deepcopy(battery_config)
     sm.process_day(day, cfg, market_config, result_folder, market_list)
@@ -122,80 +201,7 @@ if __name__ == "__main__":
             if only_configs and (energy, cycles) not in only_configs:
                 continue
             parallel = False
-            market_list = ["DA", "IDM15", "IDM60", "IMB", "FCR", "aFRR"]
-
-            battery_config = {
-                "energy": energy,
-                "power": 1,
-                "cycle_limit": cycles,
-                "service_life": 10,
-                "efficiency": 0.95,
-                "maxSOC": 1,
-                "minSOC": 0,
-                "startSOC": 0.5,
-                "DoD": 1,
-                "costs": 250,
-            }
-
-            market_config = {
-                "DA": {
-                    "t_delivery": 1,
-                    "power_share": 1,
-                    "capture_rate": 1,
-                    "capacity_share": 1,
-                },
-                "IDM15": {
-                    "t_delivery": 0.25,
-                    "power_share": 1,
-                    "capture_rate": 1,
-                    "capacity_share": 1,
-                },
-                "IDM60": {
-                    "t_delivery": 0.25,
-                    "power_share": 1,
-                    "capture_rate": 1,
-                    "capacity_share": 1,
-                },
-                "IMB": {
-                    "t_delivery": 0.25,
-                    "power_share": 1,
-                    "capture_rate": 1,
-                    "capacity_share": 1,
-                },
-                "FCR": {
-                    "t_delivery": 4,
-                    "power_share": 1,
-                    "capture_rate": 1,
-                    "capacity_share": 1,
-                    "cycle_share": 0.5,
-                },
-                "aFRR Capacity": {
-                    "t_delivery": 4,
-                    "power_share": min(1, energy / (battery_config["power"] * 4)),
-                    "capture_rate": 1,
-                    "capacity_share": 1,
-                },
-                "aFRR Energy": {
-                    "t_delivery": 0.25,
-                    "power_share": min(1, energy / (battery_config["power"] * 4)),
-                    "capture_rate": 1,
-                    "capacity_share": 1,
-                    "init_position": 0.05,
-                    "cycle_share": 1,
-                    "source": "seps_damas",
-                },
-            }
-
-            aging_costs = (
-                battery_config["costs"]
-                * 1000
-                / (
-                    battery_config["service_life"]
-                    * battery_config["cycle_limit"]
-                    * 365
-                )
-            )
-            battery_config["aging_costs"] = aging_costs
+            market_list, battery_config, market_config = build_configs(energy, cycles)
 
             result_folder = resolve_result_folder_multi(
                 energy=energy,

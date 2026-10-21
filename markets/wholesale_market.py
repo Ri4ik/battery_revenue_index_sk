@@ -145,6 +145,12 @@ class WholesaleMarket:
 
             ida_prices = data
 
+        except ValueError as e:
+            # Incomplete legacy IDA1 file (not 96 quarter-hours): treat as missing,
+            # otherwise it breaks every market that constructs WholesaleMarket.
+            print(f"File {file_path} is incomplete ({e}); IDA1 prices skipped.")
+            ida_prices = None
+
         except FileNotFoundError:
             print(f"File {file_path} not found.")
             print("Trying to download the data from the database instead...")

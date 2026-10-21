@@ -83,27 +83,34 @@ def available_battery_combos(results_dir: Path, base: str) -> List[Tuple[int, in
     return combos
 
 
+def parse_result_file(f: Path) -> Optional[dict]:
+    """One YYYY-MM-DD_results_<market>.json -> {day, market, daily_revenue_eur} (or None)."""
+    m = RESULT_NAME_RE.match(f.name)
+    if not m:
+        return None
+    day_s, market = m.group(1), m.group(2)
+    with open(f, "r", encoding="utf-8") as fp:
+        payload = json.load(fp)
+    dr = (payload.get("results") or {}).get("daily_revenue") or {}
+    val = dr.get("Total")
+    if val is None:
+        val = dr.get(market)
+    if val is None:
+        for k, v in dr.items():
+            if k != "Total" and isinstance(v, (int, float)):
+                val = v
+                break
+    if val is None:
+        return None
+    return {"day": day_s, "market": market, "daily_revenue_eur": float(val)}
+
+
 def parse_result_files(folder: Path) -> pd.DataFrame:
     rows: List[dict] = []
     for f in sorted(folder.glob("*_results_*.json")):
-        m = RESULT_NAME_RE.match(f.name)
-        if not m:
-            continue
-        day_s, market = m.group(1), m.group(2)
-        with open(f, "r", encoding="utf-8") as fp:
-            payload = json.load(fp)
-        dr = (payload.get("results") or {}).get("daily_revenue") or {}
-        val = dr.get("Total")
-        if val is None:
-            val = dr.get(market)
-        if val is None:
-            for k, v in dr.items():
-                if k != "Total" and isinstance(v, (int, float)):
-                    val = v
-                    break
-        if val is None:
-            continue
-        rows.append({"day": day_s, "market": market, "daily_revenue_eur": float(val)})
+        row = parse_result_file(f)
+        if row is not None:
+            rows.append(row)
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(rows)

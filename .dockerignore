@@ -2,11 +2,14 @@
 .venv
 .idea
 .vscode
+.env
 **/__pycache__
 *.pyc
 *.log
-marketdata
+# contains the ENTSO-E API key; pass ENTSOE_API_KEY via .env instead
 api_checks
+inbox
 Jupyter Notebooks
 docs
 results/calc_watch.log
+marketdata/.daily_update.lock

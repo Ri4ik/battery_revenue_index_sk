@@ -11,6 +11,7 @@ import pandas as pd
 SYSTEM_IMBALANCE_API_URL = "https://iszo.okte.sk/api/v1/SystemImbalance"
 DEMAND_SUPPLY_BALANCE_API_URL = "https://iszo.okte.sk/api/v1/DemandSupplyBalance"
 IDM_RESULTS_API_URL = "https://isot.okte.sk/api/v1/idm/results"
+DAM_RESULTS_API_URL = "https://isot.okte.sk/api/v1/dam/results"
 
 
 def _to_num(series: pd.Series) -> pd.Series:
@@ -140,6 +141,7 @@ def import_system_imbalance_api(
         f"System imbalance imported from API ({date_from}..{date_to}) "
         f"with field '{price_field}'."
     )
+    return sorted(str(day) for day in prices["date"].unique())
 
 
 def import_demand_supply_balance_api(workspace: str, date_from: str, date_to: str):
@@ -347,10 +349,43 @@ def import_dam_overview(path: str, workspace: str):
     df["Period number"] = pd.to_numeric(df["Period number"], errors="coerce")
     df["Price SK (EUR/MWh)"] = _to_num(df["Price SK (EUR/MWh)"])
     df = df.dropna(subset=["Delivery day", "Period number", "Price SK (EUR/MWh)"])
+    _write_dam_days(df, workspace)
 
+
+def import_dam_results_api(workspace: str, date_from: str, date_to: str):
+    """Same output as import_dam_overview, but from the OKTE DAM results API."""
+    raw = []
+    for day in pd.date_range(start=date_from, end=date_to, freq="D").strftime("%Y-%m-%d"):
+        raw.extend(
+            _fetch_okte_json(
+                DAM_RESULTS_API_URL,
+                {"deliveryDayFrom": day, "deliveryDayTo": day},
+            )
+        )
+    rows = [
+        {
+            "Delivery day": item.get("deliveryDay"),
+            "Period number": item.get("period"),
+            "Price SK (EUR/MWh)": item.get("price"),
+        }
+        for item in raw
+        if isinstance(item, dict)
+    ]
+    df = pd.DataFrame(rows, columns=["Delivery day", "Period number", "Price SK (EUR/MWh)"])
+    df["Delivery day"] = pd.to_datetime(df["Delivery day"], errors="coerce")
+    df["Period number"] = pd.to_numeric(df["Period number"], errors="coerce")
+    df["Price SK (EUR/MWh)"] = pd.to_numeric(df["Price SK (EUR/MWh)"], errors="coerce")
+    df = df.dropna(subset=["Delivery day", "Period number", "Price SK (EUR/MWh)"])
+    days = _write_dam_days(df, workspace)
+    print(f"OKTE DAM results imported from API ({date_from}..{date_to}): {len(days)} day(s).")
+    return days
+
+
+def _write_dam_days(df: pd.DataFrame, workspace: str):
     out_dir = os.path.join(workspace, "marketdata", "DA")
     _ensure_dir(out_dir)
 
+    written = []
     for day, g in df.groupby(df["Delivery day"].dt.date):
         g = g.sort_values("Period number").copy()
         if g["Period number"].max() <= 24:
@@ -370,6 +405,8 @@ def import_dam_overview(path: str, workspace: str):
         )
         out["price"] = out["price"].interpolate(method="linear").ffill().bfill()
         out.to_csv(os.path.join(out_dir, f"DA_{day}.csv"), index=False)
+        written.append(str(day))
+    return written
 
 
 def import_idm_15min(path: str, workspace: str, column_name: str = "Weighted average price of all trades (EUR/MWh)"):
@@ -472,6 +509,11 @@ def main():
     parser.add_argument("--date-from", default="2025-03-01", help="Date from for API import")
     parser.add_argument("--date-to", default="2026-03-01", help="Date to for API import")
     parser.add_argument(
+        "--fetch-dam-results",
+        action="store_true",
+        help="Import DA prices from OKTE DAM results API (alternative to --dam-overview).",
+    )
+    parser.add_argument(
         "--fetch-system-imbalance",
         action="store_true",
         help="Import IMB prices from OKTE SystemImbalance API.",
@@ -520,6 +562,12 @@ def main():
         import_idm_15min(args.idm_15min, workspace)
         if args.use_idm_as_imb_proxy:
             import_idm_as_imb_proxy(args.idm_15min, workspace)
+    if args.fetch_dam_results:
+        import_dam_results_api(
+            workspace=workspace,
+            date_from=args.date_from,
+            date_to=args.date_to,
+        )
     if args.fetch_system_imbalance:
         import_system_imbalance_api(
             workspace=workspace,
