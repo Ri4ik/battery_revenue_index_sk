@@ -100,7 +100,7 @@ Poznamka k premenovaniu:
   s bateriovym modelom. V kazdej hodine su preto styri rovnake ceny.
 - `IMB` treba este samostatne auditovat na dni, kde mohli v starsich suboroch
   ostat fallback/proxy hodnoty.
-- `FCR` a `IDC` nie su plnohodnotne rocne integrovane v hlavnom dashboarde.
+- `IDC` nie je plnohodnotne rocne integrovany v hlavnom dashboarde.
 - Cross-market strategia ako v nemeckej verzii este nie je korektne
   reprodukovana pre Slovensko.
 
@@ -113,14 +113,11 @@ Poznamka k premenovaniu:
 2. **Dorefreshovat a skontrolovat `IMB`**
    Overit dni, kde mohol byt pouzity fallback/proxy, a spravit report kvality.
 
-3. **Doplnit FCR**
-   Najst alebo pripravit stabilny zdroj rocnych FCR dat pre Slovensko.
-
-4. **Rozhodnut o IDC**
+3. **Rozhodnut o IDC**
    Overit, ci existuje dostatocne detailny verejny zdroj transakcii alebo indexu
    pre korektny slovensky IDC vypocet.
 
-5. **Formalizovat quality checks**
+4. **Formalizovat quality checks**
    Automaticke kontroly:
    - chybajuce dni/trhy,
    - nespravny pocet bodov (`DA` 24, `IDM15/IDM60/IMB` 96),
@@ -133,4 +130,4 @@ Poznamka k premenovaniu:
 Slovenska verzia uz nie je iba OKTE-only prototyp. Aktualne ma rocny dashboard
 pre `DA`, `IDM15`, `IDM60`, `IMB` a `aFRR`, pricom `aFRR` obsahuje Capacity aj
 Energy cast. Najdolezitejsie dalsie prace su audit `IMB`, rozhodnutie o legacy
-`ID1/IDA1`, doplnenie FCR/IDC a dalsie quality reporty.
+`ID1/IDA1`, rozhodnutie o IDC a dalsie quality reporty.

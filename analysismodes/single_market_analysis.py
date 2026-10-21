@@ -6,7 +6,6 @@ import json
 import numpy as np
 from markets.wholesale_market import WholesaleMarket
 from markets.aFRR_market import aFRRmarket
-from markets.FCR_market import FCRmarket
 from tools.db_connector import DBConnector
 import traceback
 import concurrent.futures
@@ -29,7 +28,7 @@ if SettingWithCopyWarning is not None:
 
 """
 Module for analyzing battery revenue potential in various electricity markets individually,
-including Day-Ahead, Intraday, FCR, and aFRR markets.
+including Day-Ahead, Intraday, imbalance and aFRR markets.
 """
 
 
@@ -74,78 +73,42 @@ def _tz_localize_berlin(index_like):
     )
 
 
-def compare_blocks(day, afrr=None, fcr=None):
+def select_afrr_blocks(day, afrr):
     """
-    Compares revenue potential between aFRR and FCR markets for each 4-hour block.
+    Decides for each 4-hour block whether the battery offers aFRR capacity.
+
+    A block is used for aFRR when its capacity revenue is a valid, non-negative
+    number; otherwise its capacity revenue is set to 0 and the block stays inactive.
 
     Args:
-        day (str): The day for which to compare market blocks.
-        afrr (aFRRmarket, optional): aFRR market object with pricing data. Defaults to None.
-        fcr (FCRmarket, optional): FCR market object with pricing data. Defaults to None.
+        day (str): The day being processed in 'YYYY-MM-DD' format.
+        afrr (aFRRmarket): aFRR market object with capacity revenue per block.
 
     Returns:
-        pd.DataFrame: Comparison of profits for each market per block, with the selected market per block.
+        pd.DataFrame: aFRR profit and selected market per block with block start/end times.
     """
-    if fcr is None:
-        block_profits_fcr = afrr.capacity_revenue * 0
-        block_profits_afrr = afrr.capacity_revenue
-    elif afrr is None:
-        block_profits_fcr = fcr.revenue
-        block_profits_afrr = fcr.revenue * 0
-    else:
-        block_profits_afrr = afrr.capacity_revenue
-        block_profits_fcr = fcr.revenue
-
-    # Compare the block profits of aFRR and FCR
     comparison = pd.DataFrame(
         {
             "block": range(6),
-            "aFRR Profit": block_profits_afrr.values,
-            "FCR Profit": block_profits_fcr.values,
+            "aFRR Profit": afrr.capacity_revenue.values,
             "Market": None,
-            "Lost Revenue": None,
-            "Wholesale Profit": None,
         }
     )
 
-    # take the max profit from every blcok
-    comparison["Max Profit"] = comparison.apply(
-        lambda row: max(row["aFRR Profit"], row["FCR Profit"]), axis=1
-    )
-
     afrr_blocks = []
-    fcr_blocks = []
     for block in comparison.index:
-        if comparison["Max Profit"][block] == comparison["aFRR Profit"][block]:
+        # NaN compares False, so blocks without a valid price stay inactive.
+        if comparison["aFRR Profit"][block] >= 0:
             comparison.loc[block, "Market"] = "aFRR"
             afrr_blocks.append(block)
-            if afrr is not None:
-                afrr.capacity_revenue[block] = comparison["aFRR Profit"][block]
-            if fcr is not None:
-                fcr.revenue[block] = 0
         else:
-            comparison.loc[block, "Market"] = "FCR"
-            fcr_blocks.append(block)
-            if fcr is not None:
-                fcr.revenue[block] = comparison["FCR Profit"][block]
-            if afrr is not None:
-                afrr.capacity_revenue[block] = 0
+            afrr.capacity_revenue[block] = 0
 
-    # add two columns with timestamps in 4h blcoks
-    # the first block starts at 00:00
-    # the second block starts at 04:00
-    # the third block starts at 08:00
-    # the fourth block starts at 12:00
-    # the fifth block starts at 16:00
-    #
-    # the sixth block starts at 20:00
+    # 4-hour blocks starting at 00:00, 04:00, ..., 20:00
     comparison["t_start"] = pd.date_range(start=day + " 00:00", periods=6, freq="4H")
     comparison["t_end"] = pd.date_range(start=day + " 04:00", periods=6, freq="4H")
 
-    if afrr is not None:
-        afrr.activated_blocks = afrr_blocks
-    if fcr is not None:
-        fcr.activated_blocks = fcr_blocks
+    afrr.activated_blocks = afrr_blocks
 
     return comparison
 
@@ -159,7 +122,7 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
         battery_config (dict): Battery configuration with energy, power, and SOC parameters.
         market_config (dict): Configuration for each market with power share and capture rates.
         result_folder_path (str): Path to the folder where results should be saved.
-        market_list (list): List of markets to analyze (e.g., 'DA', 'ID1', 'FCR', 'aFRR Capacity').
+        market_list (list): List of markets to analyze (e.g., 'DA', 'IDM15', 'IMB', 'aFRR').
 
     Returns:
         pd.DataFrame or None: Results dataframe if successful, None on error.
@@ -414,122 +377,6 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
                 with open(full_path, "w") as f:
                     json.dump(combined_data, f, indent=4, default=str)
 
-            elif market == 'FCR':
-                fcr = FCRmarket(market_config['FCR'], battery_config, day, db)
-                
-                results_df_day = pd.DataFrame()
-                timestamp_of_15min = pd.date_range(
-                    start=day + " 00:00", periods=96, freq="15min"
-                )
-                results_df_day = pd.DataFrame(
-                    columns=["FCR", "SOC"], index=timestamp_of_15min
-                )
-
-                # turn index in ttz aware for europe
-                results_df_day.index = _tz_localize_berlin(results_df_day.index)
-
-                # fcr_prices = get_fcr_prices(rf'marketdata\fcr_{day}.xlsx')
-                raw_data_path = "marketdata"
-                market_path = "FCR"
-                folder_path = os.path.join(raw_data_path, market_path)
-                fcr_prices = fcr.get_fcr_prices(day, folder_path, db)
-                # calculate revenues for the whole day
-                daily_profit, block_revenues = fcr.calculate_fcr_revenue(
-                    fcr_prices,
-                    market_config=market_config["FCR"],
-                    battery_config=battery_config,
-                )
-
-                for t in results_df_day.index:
-                    if t in pd.date_range(
-                        start=pd.Timestamp(day + " 00:00", tz="Europe/Berlin"),
-                        end=pd.Timestamp(day + " 03:45", tz="Europe/Berlin"),
-                        freq="15Min",
-                    ):
-                        results_df_day.loc[t, "FCR"] = (
-                            block_revenues[0]
-                            / 16
-                            * market_config["FCR"]["capture_rate"]
-                        )
-                    elif t in pd.date_range(
-                        start=pd.Timestamp(day + " 04:00", tz="Europe/Berlin"),
-                        end=pd.Timestamp(day + " 07:45", tz="Europe/Berlin"),
-                        freq="15Min",
-                    ):
-                        results_df_day.loc[t, "FCR"] = (
-                            block_revenues[1]
-                            / 16
-                            * market_config["FCR"]["capture_rate"]
-                        )
-                    elif t in pd.date_range(
-                        start=pd.Timestamp(day + " 08:00", tz="Europe/Berlin"),
-                        end=pd.Timestamp(day + " 11:45", tz="Europe/Berlin"),
-                        freq="15Min",
-                    ):
-                        results_df_day.loc[t, "FCR"] = (
-                            block_revenues[2]
-                            / 16
-                            * market_config["FCR"]["capture_rate"]
-                        )
-                    elif t in pd.date_range(
-                        start=pd.Timestamp(day + " 12:00", tz="Europe/Berlin"),
-                        end=pd.Timestamp(day + " 15:45", tz="Europe/Berlin"),
-                        freq="15Min",
-                    ):
-                        results_df_day.loc[t, "FCR"] = (
-                            block_revenues[3]
-                            / 16
-                            * market_config["FCR"]["capture_rate"]
-                        )
-                    elif t in pd.date_range(
-                        start=pd.Timestamp(day + " 16:00", tz="Europe/Berlin"),
-                        end=pd.Timestamp(day + " 19:45", tz="Europe/Berlin"),
-                        freq="15Min",
-                    ):
-                        results_df_day.loc[t, "FCR"] = (
-                            block_revenues[4]
-                            / 16
-                            * market_config["FCR"]["capture_rate"]
-                        )
-                    elif t in pd.date_range(
-                        start=pd.Timestamp(day + " 20:00", tz="Europe/Berlin"),
-                        end=pd.Timestamp(day + " 23:45", tz="Europe/Berlin"),
-                        freq="15Min",
-                    ):
-                        results_df_day.loc[t, "FCR"] = (
-                            block_revenues[5]
-                            / 16
-                            * market_config["FCR"]["capture_rate"]
-                        )
-
-                    results_df_day["SOC"] = 0.5
-
-                # Convert dataframe to nested dictionary
-                market_results = {}
-                results_df_day.index = results_df_day.index.astype(str)
-                for column in results_df_day.columns:
-                    market_results[column] = results_df_day[column].to_dict()
-
-                # create a table with the daily revenues for all markets
-                daily_results = pd.DataFrame(
-                    index=["FCR", "Total"], columns=["daily_revenue"], data=0
-                )
-                daily_results.loc["FCR"] = results_df_day["FCR"].sum()
-                daily_results.loc["Total"] = daily_results.sum()
-
-                # Combine everything into a single JSON structure
-                combined_data = {
-                    "results": daily_results.to_dict(),
-                    "battery_config": battery_config,
-                    "market_config": market_config,
-                    "market_results": market_results,
-                }
-                filename = f"{day}_results_FCR.json"
-                full_path = os.path.join(result_folder_path, filename)
-                # Write to a JSON file
-                with open(full_path, "w") as f:
-                    json.dump(combined_data, f, indent=4, default=str)
-
             elif market == "IDC":
                 results_df_day = pd.DataFrame()
                 timestamp_of_15min = pd.date_range(
@@ -699,9 +546,9 @@ def process_day(day, battery_config, market_config, result_folder_path, market_l
                     folder_path = os.path.join(raw_data_path, market_path)
 
                     # -----------------------------------------------------------------------------------------------------------------
-                    # 1) COMPARE FCR vs aFRR Capacit
+                    # 1) SELECT aFRR CAPACITY BLOCKS
                     # -----------------------------------------------------------------------------------------------------------------
-                    comparison = compare_blocks(day, afrr)
+                    comparison = select_afrr_blocks(day, afrr)
                     # -----------------------------------------------------------------------------------------------------------------
                     # 2) CALCULATE aFRR ENERGY REVENUES
                     # -----------------------------------------------------------------------------------------------------------------

@@ -44,7 +44,7 @@ def _parse_only_configs(unknown_args):
 
 def build_configs(energy, cycles):
     """Battery and market configuration for one Slovak benchmark combo (energy h, cycles/day)."""
-    market_list = ["DA", "IDM15", "IDM60", "IMB", "FCR", "aFRR"]
+    market_list = ["DA", "IDM15", "IDM60", "IMB", "aFRR"]
 
     battery_config = {
         "energy": energy,
@@ -83,13 +83,6 @@ def build_configs(energy, cycles):
             "power_share": 1,
             "capture_rate": 1,
             "capacity_share": 1,
-        },
-        "FCR": {
-            "t_delivery": 4,
-            "power_share": 1,
-            "capture_rate": 1,
-            "capacity_share": 1,
-            "cycle_share": 0.5,
         },
         "aFRR Capacity": {
             "t_delivery": 4,
@@ -166,7 +159,7 @@ def _process_days(day_list, battery_config, market_config, result_folder, market
 
 if __name__ == "__main__":
     args, unknown = parse_slovakia_run_args(
-        "Slovakia single-market benchmark (DA, IDM15, IDM60, IMB, FCR, aFRR)"
+        "Slovakia single-market benchmark (DA, IDM15, IDM60, IMB, aFRR)"
     )
     workers = _parse_workers(unknown)
     only_configs = _parse_only_configs(unknown)
@@ -194,7 +187,7 @@ if __name__ == "__main__":
     current_date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
 
     # Slovak benchmark:
-    # DA + IDM15 + IDM60 + IMB + FCR + aFRR Capacity + aFRR Energy.
+    # DA + IDM15 + IDM60 + IMB + aFRR Capacity + aFRR Energy.
     # aFRR Energy is sourced from SEPS/Damas "Regulačná elektrina (denná)" exports.
     for energy in [1, 2]:
         for cycles in [1, 2]:

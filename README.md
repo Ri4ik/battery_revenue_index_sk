@@ -4,7 +4,7 @@ Projekt je zamerany na vypocet vynosov baterioveho uloziska (BESS) pre slovenske
 
 ## Co je aktualne implementovane
 
-- Vypocet v rezime **single-market** pre trhy: `DA`, `IDA1`, `ID1`, `IMB`, `FCR`, `aFRR`.
+- Vypocet v rezime **single-market** pre trhy: `DA`, `IDM15`, `IDM60`, `IMB`, `aFRR` (Capacity + Energy).
 - Import a normalizacia vstupnych dat OKTE/SEPS do interneho formatu.
 - Ukladanie vysledkov po dnoch do `results/.../*.json`.
 - Webovy dashboard vo Flasku (`tools/slovakia_revenue_dashboard.py`) s filtrami:
@@ -49,7 +49,6 @@ Moznost B (rucna konverzia CSV/XLSX suborov):
   --id1-file raw/okte_id1_2025-03-01.csv `
   --ida1-file raw/okte_ida1_2025-03-01.csv `
   --imb-file raw/okte_imb_2025-03-01.csv `
-  --fcr-file raw/seps_fcr_2025-03-01.csv `
   --afrr-cap-file raw/seps_afrr_capacity_2025-03-01.csv
 ```
 

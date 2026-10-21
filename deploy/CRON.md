@@ -17,7 +17,6 @@
 | IMB | OKTE API `iszo.okte.sk/api/v1/SystemImbalance` | автоматически, см. ниже |
 | aFRR Capacity | ENTSO-E API (нужен `ENTSOE_API_KEY` в `.env`) | автоматически |
 | **aFRR Energy** | **SEPS/Damas, отчёт «Regulačná elektrina (denná)», XLSX** | **вручную** |
-| FCR | нет стабильного источника | не обновляется |
 
 **IMB.** OKTE публикует несколько оценок: `daily` (предварительная, на следующий день), затем `monthly` и `final` (примерно через 2–3 месяца после конца месяца). Updater берёт лучшую доступную оценку и последние `--lookback` дней (по умолчанию 120) перекачивает, пока не появится `final`. Пересчитываются только дни, где цены действительно изменились. Статус по дням хранится в `marketdata/IMB/_evaluation_status.json`.
 
