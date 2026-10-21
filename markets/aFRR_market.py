@@ -75,15 +75,15 @@ class aFRRmarket:
 
         return market_config
 
-    def set_marketable_power_afrr_energy(self, battery_config, fcr=None):
+    def set_marketable_power_afrr_energy(self, battery_config):
         """
-        Sets the marketable power for aFRR energy based on battery configuration and FCR.
+        Sets the marketable power for aFRR energy based on battery configuration.
+
+        Blocks selected for aFRR capacity get the aFRR power share; other blocks get 0.
 
         Args:
             battery_config (dict): Battery configuration with energy and power limits.
-            fcr (object, optional): FCR object with reserved power. Defaults to None.
         """
-        # calculate the power used in the market before
         power_limit = pd.Series(index=range(1, 97), data=0)
 
         afrr_power_share = (
@@ -93,22 +93,15 @@ class aFRRmarket:
         for block in range(6):
             if block in self.activated_blocks:
                 power_limit[block * 16 : (block + 1) * 16] = afrr_power_share
-            else:
-                power_limit[block * 16 : (block + 1) * 16] = min(
-                    afrr_power_share,
-                    (battery_config["power"] - fcr.reserved_power)
-                    * self.market_config_energy["power_share"],
-                )
 
         self.market_config_energy["marketable_power"] = power_limit
 
-    def set_marketable_soc_afrr_energy(self, battery_config, fcr=None, ri_config=None):
+    def set_marketable_soc_afrr_energy(self, battery_config, ri_config=None):
         """
         Sets the marketable SOC (State of Charge) limits for aFRR energy.
 
         Args:
             battery_config (dict): Battery configuration with SOC limits.
-            fcr (object, optional): FCR object with SOC boundaries. Defaults to None.
             ri_config (dict, optional): RI configuration with capacity share. Defaults to None.
         """
         # calculate theoretical soc limits that we must no exceed with afrr activation (including SOC management)
@@ -136,26 +129,10 @@ class aFRRmarket:
                 min_soc_marketable.loc[block * 16 : (block + 1) * 16] = (
                     min_soc + self.afrr_power / battery_config["energy"]
                 )
-
             else:
-                if ri_config is None:
-                    max_soc_marketable.loc[block * 16 : (block + 1) * 16] = min(
-                        battery_config["maxSOC"], fcr.upper_soc_boundary
-                    )
-                    min_soc_marketable.loc[block * 16 : (block + 1) * 16] = max(
-                        battery_config["minSOC"], fcr.lower_soc_boundary
-                    )
-                else:
-                    max_soc.loc[block * 16 : (block + 1) * 16] = (
-                        min(battery_config["maxSOC"], fcr.upper_soc_boundary)
-                        - ri_config["capacity_share"] / 2
-                    )
-                    min_soc.loc[block * 16 : (block + 1) * 16] = (
-                        max(battery_config["minSOC"], fcr.lower_soc_boundary)
-                        + ri_config["capacity_share"] / 2
-                    )
-                    max_soc_marketable.loc[block * 16 : (block + 1) * 16] = max_soc
-                    min_soc_marketable.loc[block * 16 : (block + 1) * 16] = min_soc
+                # block not used for aFRR: only the battery's own SOC limits apply
+                max_soc_marketable.loc[block * 16 : (block + 1) * 16] = max_soc
+                min_soc_marketable.loc[block * 16 : (block + 1) * 16] = min_soc
 
         self.max_soc = max_soc
         self.min_soc = min_soc

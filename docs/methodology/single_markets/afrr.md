@@ -8,7 +8,7 @@ Symmetrical bidding is assumed for the positive and negative capacity market. We
 
 ### Getting the price information
 
-The prices are published daily by the [Transmission System Operators](https://www.regelleistung.net/de-de/){:target="_blank"}. The auction works with a pay-as-bid mechanism; therefore, multiple prices exist for the market area. We use the column `GERMANY_AVERAGE_CAPACITY_PRICE_[(EUR/MW)/h]` from the published Excel sheet. This column includes the prices for aFRR capacity in both positive and negative directions because, in this market, each participant can choose the direction of bidding (in contrast to FCR). Each price is given per MW and 4h block. The given prices have to be multiplied by 4 to get the prices $p_t$ per MW per hour. We assume parallel bidding in both directions. Therefore, we will use both prices in the following revenue calculation.
+The prices are published daily by the [Transmission System Operators](https://www.regelleistung.net/de-de/){:target="_blank"}. The auction works with a pay-as-bid mechanism; therefore, multiple prices exist for the market area. We use the column `GERMANY_AVERAGE_CAPACITY_PRICE_[(EUR/MW)/h]` from the published Excel sheet. This column includes the prices for aFRR capacity in both positive and negative directions because, in this market, each participant can choose the direction of bidding. Each price is given per MW and 4h block. The given prices have to be multiplied by 4 to get the prices $p_t$ per MW per hour. We assume parallel bidding in both directions. Therefore, we will use both prices in the following revenue calculation.
 
 $$p_t^{(\pm)} = 4 \cdot p_{4h\ \text{Block}}$$
 

@@ -66,56 +66,6 @@ class DBConnector:
 
         return activation_data
 
-    def get_fcr_prices(self, day):
-        engine = sqlalchemy.create_engine(
-            f"mysql+pymysql://{self.user_name}:{self.pw}@{self.host_name}:{self.port_num}/{'Marketprices'}")
-        
-        query = f"""
-            SELECT *
-            FROM fcr
-            WHERE DATE(DATE_FROM) = '{day}' AND TENDER_NUMBER = 1
-            """
-        
-        finalizer_fcr = pd.read_sql_query(query, con=engine)
-        engine.dispose()
-        
-        # make column DATE_FROM to datetime_index
-        finalizer_fcr['DATE_FROM'] = pd.to_datetime(finalizer_fcr['DATE_FROM'])
-        finalizer_fcr.set_index('DATE_FROM', inplace=True)
-        
-        # capacity_prices = pd.DataFrame(index = range(6), columns = ['POS', 'NEG'])
-        
-        # for i in range(6):
-        #     capacity_prices.loc[i]['POS'] = finalizer_fcr.iloc[i]
-        #     capacity_prices.loc[i]['NEG'] = finalizer_fcr.iloc[i+6]
-
-        return finalizer_fcr
-    
-    def get_fcr_prices_range(self, start_date, end_date):
-        engine = sqlalchemy.create_engine(
-            f"mysql+pymysql://{self.user_name}:{self.pw}@{self.host_name}:{self.port_num}/{'Marketprices'}")
-        
-        query = f"""
-            SELECT *
-            FROM fcr
-            WHERE DATE(DATE_FROM) >= '{start_date}' AND DATE(DATE_FROM) <= '{end_date}' AND TENDER_NUMBER = 1
-            """
-        
-        finalizer_fcr = pd.read_sql_query(query, con=engine)
-        engine.dispose()
-        
-        # make column DATE_FROM to datetime_index
-        finalizer_fcr['DATE_FROM'] = pd.to_datetime(finalizer_fcr['DATE_FROM'])
-        finalizer_fcr.set_index('DATE_FROM', inplace=True)
-        
-        # capacity_prices = pd.DataFrame(index = range(6), columns = ['POS', 'NEG'])
-        
-        # for i in range(6):
-        #     capacity_prices.loc[i]['POS'] = finalizer_fcr.iloc[i]
-        #     capacity_prices.loc[i]['NEG'] = finalizer_fcr.iloc[i+6]
-
-        return finalizer_fcr
-    
     def get_afrr_capacity_prices(self, day):
         engine = sqlalchemy.create_engine(
             f"mysql+pymysql://{self.user_name}:{self.pw}@{self.host_name}:{self.port_num}/{'Marketprices'}")

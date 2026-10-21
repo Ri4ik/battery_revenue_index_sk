@@ -252,7 +252,7 @@ class WholesaleMarket:
                 os.makedirs(folder_path, exist_ok=True)
                 prices.to_csv(file_path)
             except:
-                raise Exception(f"Failed to get fcr data for {day}.")
+                raise Exception(f"Failed to get DA data for {day}.")
 
         self.prices["DA"] = prices
         return prices
@@ -379,7 +379,7 @@ class WholesaleMarket:
         )
 
         # marginal costs are the minimal costs that have to be earned per trade to be accepted
-        # this is especially relevant for wholesale. We will see how to apply for FCR and aFRR later
+        # this is especially relevant for wholesale. We will see how to apply for aFRR later
         marginal_cost_per_trade = (
             battery_config["aging_costs"]
             * market_config["t_delivery"]

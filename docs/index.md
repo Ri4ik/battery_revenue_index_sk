@@ -7,5 +7,5 @@ In this repository, we provide the code used to calculate the revenues shown on 
 
 * Clone project from GitLab
 * Install dependencies from requirements.txt
-* Run the calculation_config.py_script
+* Run the calculation_config_slovakia.py script
 * Find exemplary results in folder "results" in .json format

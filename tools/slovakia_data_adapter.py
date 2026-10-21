@@ -9,7 +9,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from markets.price_column_names import AFRR_CAPACITY, FCR_SETTLEMENT
+from markets.price_column_names import AFRR_CAPACITY
 
 
 EXPECTED = {
@@ -78,21 +78,6 @@ def convert_qh_market(
     print(f"Saved {out_file}")
 
 
-def convert_fcr(raw_file: Path, output_base: Path, day: str, price_col: str):
-    df = pd.read_csv(raw_file) if raw_file.suffix.lower() == ".csv" else pd.read_excel(raw_file)
-    fcr_prices = pd.to_numeric(df[price_col], errors="coerce").dropna().reset_index(drop=True)
-    fcr_prices = fcr_prices.iloc[:6]
-    out = pd.DataFrame(
-        {
-            "DATE_FROM": [day] * len(fcr_prices),
-            FCR_SETTLEMENT: fcr_prices.values,
-        }
-    )
-    out_file = _ensure_output_dir(output_base, "FCR") / f"FCR_{day}.csv"
-    out.to_csv(out_file, index=False)
-    print(f"Saved {out_file}")
-
-
 def convert_afrr_capacity(
     raw_file: Path,
     output_base: Path,
@@ -149,9 +134,6 @@ def main():
     parser.add_argument("--imb-timestamp-col", default="timestamp")
     parser.add_argument("--imb-price-col", default="price")
 
-    parser.add_argument("--fcr-file", help="Raw FCR capacity csv/xlsx")
-    parser.add_argument("--fcr-price-col", default="price")
-
     parser.add_argument("--afrr-cap-file", help="Raw aFRR capacity csv/xlsx")
     parser.add_argument("--afrr-product-col", default="PRODUCT")
     parser.add_argument("--afrr-price-col", default="price")
@@ -196,8 +178,6 @@ def main():
             args.imb_timestamp_col,
             args.imb_price_col,
         )
-    if args.fcr_file:
-        convert_fcr(Path(args.fcr_file), workspace, day, args.fcr_price_col)
     if args.afrr_cap_file:
         convert_afrr_capacity(
             Path(args.afrr_cap_file),
