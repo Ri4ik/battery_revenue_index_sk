@@ -17,6 +17,8 @@ COPY analysismodes/ analysismodes/
 COPY markets/ markets/
 COPY tools/ tools/
 COPY docker/wsgi.py docker/wsgi.py
+COPY docker/about.html docker/about.html
+COPY LICENSE.txt ./
 # Initial data; in docker-compose these paths are named volumes seeded from the image
 # on first start, the daily updater keeps them current afterwards.
 COPY marketdata/ marketdata/

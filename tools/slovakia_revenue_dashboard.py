@@ -22,7 +22,7 @@ if str(_REPO) not in sys.path:
 
 import pandas as pd
 import plotly.graph_objects as go
-from flask import Flask, redirect, render_template_string, request, url_for
+from flask import Flask, Response, redirect, render_template_string, request, url_for
 
 RESULT_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_results_([A-Za-z0-9+]+)\.json$")
 BATTERY_SUFFIX_RE = re.compile(r"^(.+)_(\d+)_(\d+)$")
@@ -503,6 +503,10 @@ PAGE = """
       </tbody>
     </table>
     {% endif %}
+    <footer>
+      <p>GNU GPL v3.
+      <a href="{{ url_for_about }}">O projekte, autori a zdroje</a> · <a href="/license">Licencia</a></p>
+    </footer>
   </div>
 </body>
 </html>
@@ -519,6 +523,17 @@ def create_app(repo: Path) -> Flask:
 
     engine = results_db.get_engine() if results_db.database_url() else None
     use_db = engine is not None
+
+    @app.route("/about")
+    def about():
+        return Response(
+            (repo / "docker" / "about.html").read_text(encoding="utf-8"),
+            mimetype="text/html",
+        )
+
+    @app.route("/license")
+    def license_text():
+        return Response((repo / "LICENSE.txt").read_bytes(), mimetype="text/plain")
 
     def default_base() -> str:
         if not use_db:
@@ -627,6 +642,7 @@ def create_app(repo: Path) -> Flask:
 
         return render_template_string(
             PAGE,
+            url_for_about=url_for("about"),
             url=request.path,
             results_base=results_base,
             system_type=system_type,
