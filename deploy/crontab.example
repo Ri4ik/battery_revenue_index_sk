@@ -1,3 +1,0 @@
-# Daily update of the Slovak battery revenue index (crontab -e on the server).
-# Adjust the project path. Runs every day at 06:30 server time.
-30 6 * * * cd /srv/battery_revenue_index_sk && docker compose run --rm -T updater >> /var/log/battery_index_update.log 2>&1

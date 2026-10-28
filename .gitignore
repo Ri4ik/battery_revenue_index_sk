@@ -36,3 +36,9 @@ Thumbs.db
 
 # Manually supplied data for the daily updater (SEPS/Damas XLSX)
 inbox/
+
+# OneDrive/rclone token, local CA bundles, raw archive, local rclone binary, local compose overrides
+secrets/
+raw/
+tools/bin/
+docker-compose.override.yml

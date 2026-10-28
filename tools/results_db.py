@@ -22,6 +22,7 @@ from sqlalchemy import (
     create_engine,
     func,
     select,
+    text,
 )
 
 metadata = MetaData()
@@ -132,6 +133,44 @@ def upsert_rows(
             )
         conn.execute(daily_revenue.insert(), rows)
     return len(rows)
+
+
+PUBLISHED_BASE = "Zverejnené výsledky (databáza)"
+
+
+def has_published(engine) -> bool:
+    """True when the normalized schema (bri) exists and holds published results."""
+    with engine.connect() as conn:
+        if conn.execute(text("SELECT to_regclass('bri.result_publication')")).scalar() is None:
+            return False
+        return bool(conn.execute(text("SELECT EXISTS (SELECT 1 FROM bri.result_publication)")).scalar())
+
+
+def load_published(engine, energy_mwh: int, cycle_limit: int) -> pd.DataFrame:
+    """Published daily totals (one result version per day) in the dashboard's shape."""
+    q = text("""SELECT delivery_day, market, revenue_eur FROM bri.published_daily_total
+                WHERE energy_mwh = :e AND cycle_limit = :c ORDER BY delivery_day, market""")
+    with engine.connect() as conn:
+        rows = conn.execute(q, {"e": energy_mwh, "c": cycle_limit}).fetchall()
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows, columns=["day", "market", "daily_revenue_eur"])
+    df["day"] = pd.to_datetime(df["day"])
+    df["market"] = df["market"].replace({"AFRR": "aFRR"})
+    df["daily_revenue_eur"] = df["daily_revenue_eur"].astype(float)
+    return df
+
+
+def published_status(engine) -> dict:
+    """Last publication time and days whose aFRR energy (SEPS Excel) is still missing."""
+    with engine.connect() as conn:
+        last = conn.execute(text("SELECT max(published_at) FROM bri.result_publication")).scalar()
+        waiting = [r[0] for r in conn.execute(text("""
+            SELECT e.delivery_day FROM bri.market_day e JOIN bri.market m USING (market_id)
+            WHERE m.code = 'AFRR' AND e.component = 'energy' AND e.status <> 'complete'
+              AND e.delivery_day <= (SELECT max(delivery_day) FROM bri.result_publication)
+            ORDER BY 1""")).fetchall()]
+    return {"last_published": last, "afrr_waiting": waiting}
 
 
 def list_datasets(engine) -> List[str]:

@@ -13,3 +13,7 @@ Jupyter Notebooks
 docs
 results/calc_watch.log
 marketdata/.daily_update.lock
+secrets
+raw
+tools/bin
+docker-compose.override.yml

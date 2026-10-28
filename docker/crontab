@@ -1,0 +1,3 @@
+# supercronic schedule of the worker container; times are in TZ=Europe/Bratislava.
+# Daily pipeline: OneDrive inbox -> OKTE/ENTSO-E -> readiness -> calculation -> STAV.txt
+0 16 * * * python -m bri.pipeline --trigger cron

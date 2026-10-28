@@ -722,11 +722,14 @@ class WholesaleMarket:
                 continue
             if trial[trial > 0].sum() > battery_config["cycle_limit"] + 1e-9:
                 continue
+            # trial holds SOC changes (fraction of capacity); one full-power step is soc_change.
+            # Comparing against marketable_power * t_delivery (MWh) let 2 MWh batteries trade
+            # twice in one interval, i.e. above their power limit.
             pos_step = trial[trial > 0]
             neg_step = trial[trial < 0]
             if (
-                (len(pos_step) and pos_step.max() > market_config["marketable_power"] * market_config["t_delivery"] + 1e-9)
-                or (len(neg_step) and abs(neg_step.min()) > market_config["marketable_power"] * market_config["t_delivery"] + 1e-9)
+                (len(pos_step) and pos_step.max() > soc_change + 1e-9)
+                or (len(neg_step) and abs(neg_step.min()) > soc_change + 1e-9)
             ):
                 continue
 

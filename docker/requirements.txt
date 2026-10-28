@@ -18,3 +18,5 @@ loguru>=0.5.3,<0.6
 matplotlib>=3.3,<3.4
 PuLP>=2.4,<2.7
 openpyxl>=3.0,<3.1
+# tests
+pytest>=6,<8

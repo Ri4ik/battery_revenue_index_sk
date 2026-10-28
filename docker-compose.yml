@@ -1,6 +1,15 @@
 x-database-url: &database-url
   DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-bri}:${POSTGRES_PASSWORD:-bri}@db:5432/${POSTGRES_DB:-battery_revenue_index}
 
+x-worker-env: &worker-env
+  <<: *database-url
+  TZ: Europe/Bratislava
+  ENTSOE_API_KEY: ${ENTSOE_API_KEY:-}
+  # empty = OneDrive step disabled
+  ONEDRIVE_REMOTE: ${ONEDRIVE_REMOTE:-}
+  RCLONE_CONFIG: /config/rclone/rclone.conf
+  BRI_RAW_ARCHIVE: /data/raw
+
 services:
   db:
     image: postgres:16-alpine
@@ -20,18 +29,24 @@ services:
       retries: 20
     restart: unless-stopped
 
-  # One-shot job: loads results/ JSON into the database (skips combos already imported).
-  importer:
-    build: .
+  # Daily pipeline at 16:00 Europe/Bratislava (the only scheduler).
+  # Manual run: docker compose exec worker python -m bri.pipeline
+  worker:
+    build:
+      context: .
+      args:
+        CODE_VERSION: ${CODE_VERSION:-unknown}
     image: battery-revenue-index-sk
-    environment: *database-url
+    environment: *worker-env
     volumes:
-      - results:/app/results
-    command: python tools/import_results_to_db.py
+      - raw_archive:/data/raw
+      # private, writable: rclone refreshes the OAuth token in rclone.conf (never in git / image)
+      - ./secrets/rclone:/config/rclone
+    command: /usr/local/bin/supercronic /app/docker/crontab
     depends_on:
       db:
         condition: service_healthy
-    restart: "no"
+    restart: unless-stopped
 
   dashboard:
     image: battery-revenue-index-sk
@@ -39,30 +54,29 @@ services:
     ports:
       - "5050:5050"
     depends_on:
-      importer:
-        condition: service_completed_successfully
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
-  # Daily data download + recalculation, started by cron:
-  #   docker compose run --rm updater
-  # Manually supplied SEPS/Damas XLSX files go into ./inbox on the host.
-  updater:
+  # One-time migration of the file-based project (legacy results + inputs) and backfill:
+  #   docker compose run --rm migrate
+  migrate:
     image: battery-revenue-index-sk
     profiles: ["jobs"]
-    user: root
-    environment:
-      <<: *database-url
-      ENTSOE_API_KEY: ${ENTSOE_API_KEY:-}
+    environment: *worker-env
     volumes:
+      - raw_archive:/data/raw
+      - ./secrets/rclone:/config/rclone
       - results:/app/results
       - marketdata:/app/marketdata
-      - ./inbox:/app/inbox
-    command: python tools/daily_update.py
+    command: python -m bri.migrate
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
   pgdata:
+  raw_archive:
+  # legacy file data (seeded from the image / filled by the former updater)
   results:
   marketdata:

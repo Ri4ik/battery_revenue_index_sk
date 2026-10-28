@@ -411,9 +411,11 @@ PAGE = """
         {% if missing_combo %}
         <div class="missing-data">
           Pre kombináciu <strong>{{ system_type }} h / {{ cycle_limit }} cyklov</strong> ešte nie sú
-          vypočítané výsledky v <code>results/{{ results_base }}_{{ system_type }}_{{ cycle_limit }}/</code>{% if use_db %} alebo nie sú nahraté do databázy{% endif %}.
+          {% if use_db %}zverejnené výsledky v databáze.
+          Spusti: <code>docker compose exec worker python -m bri.pipeline</code>
+          {% else %}vypočítané výsledky v <code>results/{{ results_base }}_{{ system_type }}_{{ cycle_limit }}/</code>.
           Spusti: <code>python calculation_config_slovakia.py --start-day 2025-03-01 --end-day 2026-03-01 --resume --resume-parent "results/{{ results_base }}" --only-configs {{ system_type }}_{{ cycle_limit }} --workers 11</code>
-          {% if use_db %}a potom <code>python tools/import_results_to_db.py</code>{% endif %}
+          {% endif %}
         </div>
         {% endif %}
 
@@ -484,6 +486,10 @@ PAGE = """
           Dataset: <strong>{{ results_base }}</strong> ·
           {{ system_type }} h / {{ cycle_limit }} cyklov/deň ·
           dostupný rozsah: <strong>{{ data_min }}</strong> až <strong>{{ data_max }}</strong>.
+          {% if status %}
+          <br/>Aktualizované: <strong>{{ status.updated or '–' }}</strong>
+          {% if status.afrr_waiting %}· aFRR čaká na dáta SEPS/Damas (Excel) za: {{ status.afrr_waiting }}{% endif %}
+          {% endif %}
         </div>
       </form>
     </section>
@@ -535,9 +541,15 @@ def create_app(repo: Path) -> Flask:
     def license_text():
         return Response((repo / "LICENSE.txt").read_bytes(), mimetype="text/plain")
 
+    def published() -> bool:
+        # normalized schema (bri): one published result version per day
+        return use_db and results_db.has_published(engine)
+
     def default_base() -> str:
         if not use_db:
             return pick_default_base(results_dir)
+        if published():
+            return results_db.PUBLISHED_BASE
         bases = results_db.list_datasets(engine)
         if DEFAULT_RESULTS_BASE in bases:
             return DEFAULT_RESULTS_BASE
@@ -546,6 +558,8 @@ def create_app(repo: Path) -> Flask:
         raise ValueError("No result bases found.")
 
     def load_combo(base: str, system_type: int, cycle_limit: int) -> pd.DataFrame:
+        if use_db and base == results_db.PUBLISHED_BASE:
+            return results_db.load_published(engine, system_type, cycle_limit)
         if use_db:
             return results_db.load_daily_revenue(engine, base, system_type, cycle_limit)
         folder_path = resolve_battery_result_folder(
@@ -640,6 +654,16 @@ def create_app(repo: Path) -> Flask:
 
         chart_html = fig.to_html(full_html=False, include_plotlyjs="cdn", config={"displayModeBar": True})
 
+        status = None
+        if results_base == results_db.PUBLISHED_BASE:
+            st = results_db.published_status(engine)
+            last = st["last_published"]
+            status = {
+                "updated": pd.Timestamp(last).tz_convert("Europe/Bratislava").strftime("%d. %m. %Y %H:%M")
+                if last is not None else None,
+                "afrr_waiting": _day_ranges(st["afrr_waiting"]),
+            }
+
         return render_template_string(
             PAGE,
             url_for_about=url_for("about"),
@@ -664,9 +688,26 @@ def create_app(repo: Path) -> Flask:
             summary_rows=summary_rows,
             data_min=dmin.isoformat(),
             data_max=dmax.isoformat(),
+            status=status,
         )
 
     return app
+
+
+def _day_ranges(days) -> str:
+    """[date, ...] -> '27. 5. 2026 – 20. 10. 2026, ...'"""
+    fmt = lambda d: "{}. {}. {}".format(d.day, d.month, d.year)  # noqa: E731
+    out, start, prev = [], None, None
+    for d in sorted(days):
+        if prev is not None and (d - prev).days == 1:
+            prev = d
+            continue
+        if start is not None:
+            out.append(fmt(start) if start == prev else "{} – {}".format(fmt(start), fmt(prev)))
+        start = prev = d
+    if start is not None:
+        out.append(fmt(start) if start == prev else "{} – {}".format(fmt(start), fmt(prev)))
+    return ", ".join(out)
 
 
 def main():
