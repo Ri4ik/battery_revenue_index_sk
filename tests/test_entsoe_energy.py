@@ -201,7 +201,7 @@ def test_real_archived_a84_matches_seps_prices_and_point_category():
     assert records[0]['price'] == 94.3605
     # The archived API request covered a UTC day; the SEPS CSV covers a Slovak
     # local day. Compare their actual overlapping timestamps, not row numbers.
-    csv = Path(__file__).resolve().parents[1] / 'marketdata/SepsDamasEnergy/daily/seps_damas_afrr_energy_2026-05-23.csv'
+    csv = FIXTURES / 'seps_damas_afrr_energy_2026-05-23.csv'
     frame = pd.read_csv(str(csv))
     lookup = {(r['start'], r['direction']): r['price'] for r in records}
     matched = 0
