@@ -35,7 +35,7 @@ def main(argv=None):
     conn.close()
     if args.skip_backfill:
         return 0
-    return pipeline.main(["--from", settings.FIRST_DAY, "--trigger", "backfill", "--skip-onedrive"])
+    return pipeline.main(["--from", settings.FIRST_DAY, "--trigger", "backfill", "--source", "none"])
 
 
 if __name__ == "__main__":

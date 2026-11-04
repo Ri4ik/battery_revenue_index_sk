@@ -9,6 +9,11 @@ x-worker-env: &worker-env
   ONEDRIVE_REMOTE: ${ONEDRIVE_REMOTE:-}
   RCLONE_CONFIG: /config/rclone/rclone.conf
   BRI_RAW_ARCHIVE: /data/raw
+  BRI_FILE_SOURCE: ${BRI_FILE_SOURCE:-onedrive}
+  BRI_LOCAL_INBOX: /data/inbox
+  BRI_REPORT_DIR: /data/reports
+  BRI_LOCAL_MIN_AGE_SECONDS: ${BRI_LOCAL_MIN_AGE_SECONDS:-10}
+  BRI_DELETE_AFTER_SUCCESS: ${BRI_DELETE_AFTER_SUCCESS:-0}
 
 services:
   db:
@@ -42,6 +47,8 @@ services:
       - raw_archive:/data/raw
       # private, writable: rclone refreshes the OAuth token in rclone.conf (never in git / image)
       - ./secrets/rclone:/config/rclone
+      - ${BRI_INBOX_HOST:-./incoming}:/data/inbox
+      - ${BRI_REPORTS_HOST:-./reports/local_inbox}:/data/reports
     command: /usr/local/bin/supercronic /app/docker/crontab
     depends_on:
       db:

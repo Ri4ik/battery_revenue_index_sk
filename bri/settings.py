@@ -31,6 +31,13 @@ INBOX_MIN_AGE_MINUTES = int(os.environ.get("BRI_INBOX_MIN_AGE_MINUTES", "10"))
 
 HTTP_TIMEOUT = 60
 
+# File transport for the pipeline. A local inbox needs no cloud credentials.
+FILE_SOURCE = os.environ.get("BRI_FILE_SOURCE", "onedrive")
+LOCAL_INBOX = Path(os.environ.get("BRI_LOCAL_INBOX", "/data/inbox"))
+REPORT_DIR = Path(os.environ.get("BRI_REPORT_DIR", "/data/reports"))
+LOCAL_MIN_AGE_SECONDS = int(os.environ.get("BRI_LOCAL_MIN_AGE_SECONDS", "10"))
+DELETE_AFTER_SUCCESS = os.environ.get("BRI_DELETE_AFTER_SUCCESS", "0").lower() in ("1", "true", "yes")
+
 
 def code_version():
     """Git commit of the running code (set at image build time, or read from git locally)."""

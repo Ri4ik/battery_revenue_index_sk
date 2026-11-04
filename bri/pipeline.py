@@ -1,4 +1,4 @@
-"""Daily pipeline: OneDrive -> APIs -> readiness -> calculation -> publication -> STAV.txt.
+"""Daily pipeline: local inbox / OneDrive -> APIs -> calculation -> publication -> report.
 
     python -m bri.pipeline                         # scheduled run (window: recent days)
     python -m bri.pipeline --from 2025-03-01       # backfill a period
@@ -12,10 +12,11 @@ import argparse
 import datetime as dt
 import sys
 import traceback
+from pathlib import Path
 
 import pandas as pd
 
-from bri import calc, db, onedrive, readiness, settings
+from bri import calc, db, local_inbox, onedrive, readiness, settings
 from bri.importers import entsoe, okte
 from bri.timeutil import days as day_list, yesterday_local
 
@@ -146,7 +147,20 @@ def main(argv=None):
     p.add_argument("--skip-onedrive", action="store_true")
     p.add_argument("--skip-api", action="store_true")
     p.add_argument("--force-calc", action="store_true", help="recompute even unchanged days")
+    p.add_argument("--source", choices=("local", "onedrive", "none"), default=settings.FILE_SOURCE,
+                   help="file transport (APIs are controlled separately by --skip-api)")
+    p.add_argument("--inbox", help="local inbox directory (default BRI_LOCAL_INBOX)")
+    p.add_argument("--report-dir", help="persistent report directory (default BRI_REPORT_DIR)")
+    cleanup = p.add_mutually_exclusive_group()
+    cleanup.add_argument("--delete-after-success", dest="delete_after_success", action="store_true",
+                         help="remove claimed local inputs/raw copies after verified publication and report")
+    cleanup.add_argument("--keep-files", dest="delete_after_success", action="store_false")
+    p.set_defaults(delete_after_success=settings.DELETE_AFTER_SUCCESS)
     args = p.parse_args(argv)
+    if args.inbox:
+        settings.LOCAL_INBOX = Path(args.inbox)
+    if args.report_dir:
+        settings.REPORT_DIR = Path(args.report_dir)
 
     started = pd.Timestamp.now(tz=settings.TZ)
     conn = db.connect()
@@ -156,8 +170,9 @@ def main(argv=None):
     calc.seed_configs(conn)
     if not db.try_pipeline_lock(conn):
         log("another pipeline is running - exit")
+        conn.close()
         return 2
-    messages, status = [], "success"
+    messages, status, local_run = [], "success", None
     with conn.cursor() as cur:
         cur.execute("INSERT INTO pipeline_run (trigger, status) VALUES (%s, 'running') RETURNING pipeline_run_id",
                     (args.trigger,))
@@ -185,13 +200,23 @@ def main(argv=None):
 
         touched = set()
         onedrive_ok = True
-        if settings.ONEDRIVE_REMOTE and not args.skip_onedrive:
+        if args.source == "local":
+            local_run = local_inbox.LocalInboxRun(conn, prun, args.delete_after_success, allow_api=not args.skip_api)
+            touched |= local_run.intake()
+            file_days = {d for d in touched if str(d) >= settings.FIRST_DAY}
+            # A manual upload updates its own period. Scheduled cron still refreshes recent markets.
+            if args.trigger != "cron" and not args.date_from and not args.date_to:
+                window = sorted(file_days)
+            else:
+                window = sorted(set(window) | file_days)
+            recent &= set(window)
+        if args.source == "onedrive" and settings.ONEDRIVE_REMOTE and not args.skip_onedrive:
             try:
                 touched |= onedrive.intake(conn, messages)
             except onedrive.RcloneError as exc:
                 onedrive_ok = False
                 messages.append("OneDrive {}: {}".format("autorizácia" if exc.auth else "nedostupný", exc))
-        if not args.skip_api:
+        if not args.skip_api and window:
             readiness.refresh(conn, window)
             touched |= fetch_okte(conn, window, recent, messages)
             touched |= fetch_entsoe(conn, window, recent, messages)
@@ -205,19 +230,33 @@ def main(argv=None):
             messages.append("Výpočet: {} dní/trhov zverejnených (run {})".format(n_done, run_id))
         if messages and any(not m.startswith(("Výpočet", "OneDrive: ")) for m in messages):
             status = "partial"
-        if settings.ONEDRIVE_REMOTE and not args.skip_onedrive:
+        if args.source == "onedrive" and settings.ONEDRIVE_REMOTE and not args.skip_onedrive:
             text = status_text(conn, started, messages, onedrive_ok)
             try:
                 onedrive.write_status(text)
             except onedrive.RcloneError as exc:
                 status = "partial"
                 messages.append("OneDrive: STAV.txt sa nepodarilo zapísať ({})".format(exc))
+        if local_run:
+            if not local_run.finish(messages):
+                status = "partial"
+                messages.append("Local inbox: some files are waiting, rejected or require cleanup (see report)")
+            for entry in local_run.entries:
+                if entry.get("error"):
+                    messages.append("Local inbox {} [{}]: {}".format(entry['original_name'], entry['status'], entry['error']))
+            log("Local report JSON: {}".format(local_run.json_path))
+            log("Local report TXT: {}".format(local_run.txt_path))
         for m in messages:
             log(m)
     except Exception:
         status = "failed"
         messages.append(traceback.format_exc())
         log(messages[-1])
+        if local_run:
+            try:
+                local_run.fail(messages[-1])
+            except Exception:
+                log("Could not persist the failure report: " + traceback.format_exc())
     finally:
         conn.rollback()
         with conn.cursor() as cur:
@@ -227,7 +266,7 @@ def main(argv=None):
         db.release_pipeline_lock(conn)
         conn.close()
     log("pipeline finished: {}".format(status))
-    return 0 if status != "failed" else 1
+    return 0 if status == "success" or (status == "partial" and args.source != "local") else 1
 
 
 if __name__ == "__main__":

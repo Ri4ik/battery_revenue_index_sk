@@ -169,6 +169,22 @@ def test_fast_model_respects_power_limit_on_quarter_hours():
             assert max(abs(b - a) for a, b in zip(soc, soc[1:])) <= max_step + 1e-9, (energy, cycles)
 
 
+@pytest.mark.parametrize("available,should_schedule", [(74, False), (75, True)])
+def test_idm_scheduler_respects_existing_gap_limit_on_dst_day(conn, monkeypatch, available, should_schedule):
+    day = D(2025, 10, 26)  # 100 quarter-hour products in this local day.
+    rows = json.loads(fixture_bytes("okte_dam_2025-10-26.json"))[:available]
+    for row in rows:
+        row["priceWeightedAverage"] = row["price"]
+    payload = json.dumps(rows).encode("utf-8")
+    monkeypatch.setattr(okte, "_get", lambda url, params: payload)
+    okte.import_idm(conn, day, 15)
+    readiness.refresh(conn, [day], markets=("IDM15",))
+    tasks = calc.select_tasks(conn, [day], markets=("IDM15",))
+    assert bool(tasks) is should_schedule
+    if should_schedule:
+        assert tasks == [("IDM15", day, [1, 2, 3, 4])]
+
+
 def test_only_one_pipeline_can_hold_the_lock(conn):
     other = db.connect(TEST_URL)
     try:

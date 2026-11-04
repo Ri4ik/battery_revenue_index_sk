@@ -9,6 +9,8 @@
 # contains the ENTSO-E API key; pass ENTSOE_API_KEY via .env instead
 api_checks
 inbox
+incoming
+reports/local_inbox
 Jupyter Notebooks
 docs
 results/calc_watch.log

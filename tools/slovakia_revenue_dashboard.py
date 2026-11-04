@@ -160,12 +160,13 @@ def build_figure(
 
     pivot = sub.pivot_table(
         index="day", columns="market", values="daily_revenue_eur", aggfunc="sum"
-    ).fillna(0)
+    )
     pivot = pivot.sort_index()
     for m in markets:
         if m not in pivot.columns:
-            pivot[m] = 0.0
+            pivot[m] = float("nan")
     pivot = pivot[[c for c in markets if c in pivot.columns]]
+    available = pivot.notna()
     # Base unit in source JSON: EUR/day (daily revenue).
     if aggregation == "annualized":
         # Convert daily EUR to annualized kEUR/MW/year.
@@ -173,10 +174,10 @@ def build_figure(
         pivot = pivot * 365.0 / 1000.0
         y_title = "Anualizovaný výnos batérie (kEUR/MW/rok)"
     elif aggregation == "avg30":
-        pivot = pivot.rolling(window=30, min_periods=1).mean()
+        pivot = pivot.rolling(window=30, min_periods=1).mean().where(available)
         y_title = "30-dňový priemerný výnos batérie (EUR/deň)"
     elif aggregation == "avg365":
-        pivot = pivot.rolling(window=365, min_periods=1).mean()
+        pivot = pivot.rolling(window=365, min_periods=1).mean().where(available)
         y_title = "365-dňový priemerný výnos batérie (EUR/deň)"
     else:
         y_title = "Denný výnos (EUR/deň)"

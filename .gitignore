@@ -36,6 +36,8 @@ Thumbs.db
 
 # Manually supplied data for the daily updater (SEPS/Damas XLSX)
 inbox/
+incoming/
+reports/local_inbox/
 
 # OneDrive/rclone token, local CA bundles, raw archive, local rclone binary, local compose overrides
 secrets/

@@ -45,7 +45,7 @@ ARG CODE_VERSION=unknown
 ENV BRI_CODE_VERSION=${CODE_VERSION}
 
 RUN useradd --create-home --uid 1000 appuser \
- && mkdir -p /data/raw /config/rclone \
+ && mkdir -p /data/raw /data/inbox /data/reports /config/rclone \
  && chown -R appuser:appuser /data /config
 USER appuser
 

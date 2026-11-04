@@ -123,6 +123,15 @@ def select_tasks(conn, days, markets=MARKETS, force=False):
             comps = status.get((market, day), {})
             if not readiness.calculable({c: v[0] for c, v in comps.items()}, market):
                 continue
+            if market in readiness.IDM_STEP and comps.get("prices", (None,))[0] == "incomplete":
+                # Match the model's existing interpolation limit before scheduling it.
+                # Otherwise unchanged, unusable days fail again on every pipeline run.
+                with conn.cursor() as cur:
+                    frame = inputs.day_prices(cur, market, day)
+                conn.commit()
+                gaps, expected = readiness.idm_gaps(frame, market, day)
+                if gaps > readiness.IDM_MAX_GAP_SHARE * expected:
+                    continue
             current = {c: v[1] for c, v in comps.items() if c != "total"}
             todo = [cid for cid in config_ids
                     if force or model_of.get((cid, market, day)) != MODEL_VERSION

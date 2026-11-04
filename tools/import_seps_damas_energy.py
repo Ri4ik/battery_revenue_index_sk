@@ -14,6 +14,7 @@ activated Up/Down volume [MWh] and standard Up/Down price.
 
 import argparse
 import csv
+import math
 import os
 import re
 import shutil
@@ -61,21 +62,64 @@ def local_timestamp(day, hour, quarter_in_hour):
     return pd.Timestamp(day) + pd.Timedelta(minutes=minutes)
 
 
+def _priced_columns(raw):
+    """Locate volume/price columns, including the archived nine-column export.
+
+    Each direction can have special and standard price columns. The row reader
+    accepts one populated price (or equal prices), never an arbitrary mixture.
+    """
+    first = None
+    for index, value in raw.iloc[:, 0].items():
+        if pd.isna(value):
+            continue
+        try:
+            if parse_date(value) is not None:
+                first = index
+                break
+        except (TypeError, ValueError):
+            continue
+    headers = [' '.join(str(v).lower() for v in raw.iloc[:first, col] if pd.notna(v))
+               for col in range(raw.shape[1])]
+    volumes = [col for col in range(3, raw.shape[1]) if 'objem' in headers[col] and 'mwh' in headers[col]]
+    if len(volumes) == 2:
+        result = []
+        for i, volume in enumerate(volumes):
+            stop = volumes[i + 1] if i + 1 < len(volumes) else raw.shape[1]
+            prices = [col for col in range(volume + 1, stop) if 'cena' in headers[col]]
+            if not prices:
+                raise ValueError('Missing price header after SEPS volume column')
+            result.append((volume, prices))
+        return result
+    if raw.shape[1] == 7:
+        return [(3, [4]), (5, [6])]  # historical seven-column positional contract
+    raise ValueError('Unrecognized SEPS price/volume headers; refusing positional import')
+
+
 def parse_afrr_sheet(path, source_name):
     raw = pd.read_excel(str(path), sheet_name=SERVICE_SHEET, header=None, engine="openpyxl")
+    if raw.shape[1] < 7:
+        raise ValueError("aFRR export must contain date/hour/quarter and Up volume, Up price, Down volume, Down price; this file has only {} columns (volume-only exports cannot be used to calculate energy revenue)".format(raw.shape[1]))
+    (up_volume_col, up_price_cols), (down_volume_col, down_price_cols) = _priced_columns(raw)
     rows = []
     current_day = None
     current_hour = None
 
-    # First 5 rows are a multi-line report header:
-    # row 0: article reference, row 1: source type, row 2: direction,
-    # row 3/4: volume and price labels.
-    for _, row in raw.iloc[5:].iterrows():
+    # Detect data rows instead of assuming a fixed number of header rows.
+    for _, row in raw.iterrows():
         values = list(row.values) + [None] * 8
         if pd.notna(values[0]):
-            current_day = parse_date(values[0])
+            try:
+                candidate = parse_date(values[0])
+                if candidate is None or pd.isna(candidate):
+                    continue
+                current_day = candidate
+            except (TypeError, ValueError):
+                continue
         if pd.notna(values[1]):
-            current_hour = int(values[1])
+            try:
+                current_hour = int(values[1])
+            except (TypeError, ValueError):
+                continue
         if pd.isna(values[2]) or current_day is None or current_hour is None:
             continue
 
@@ -83,13 +127,34 @@ def parse_afrr_sheet(path, source_name):
             qh_in_hour = int(values[2])
         except (TypeError, ValueError):
             continue
+        if qh_in_hour not in (1, 2, 3, 4) or current_hour < 1 or current_hour > 25:
+            raise ValueError("Invalid hour/quarter in SEPS data")
 
         timestamp = local_timestamp(current_day, current_hour, qh_in_hour)
-        up_mwh = parse_float(values[3])
-        up_price = parse_float(values[4])
-        down_mwh = parse_float(values[5])
-        down_price = parse_float(values[6])
+        def number(value, label, blank_zero=False):
+            if pd.isna(value):
+                if blank_zero:
+                    return 0.0
+                raise ValueError("Missing {} for {} quarter {}".format(label, current_day, quarter_hour))
+            try:
+                result = float(str(value).replace(",", "."))
+            except (TypeError, ValueError):
+                raise ValueError("Non-numeric {} for {}".format(label, current_day))
+            if not math.isfinite(result):
+                raise ValueError("Non-finite {} for {}".format(label, current_day))
+            return result
         quarter_hour = (current_hour - 1) * 4 + qh_in_hour
+        up_mwh = number(values[up_volume_col], "Up volume", blank_zero=True)
+        down_mwh = number(values[down_volume_col], "Down volume", blank_zero=True)
+        def one_price(columns, volume, label):
+            prices = [number(values[col], label) for col in columns if pd.notna(values[col])]
+            if not prices:
+                return number(None, label, blank_zero=(volume == 0))
+            if volume and any(p != prices[0] for p in prices[1:]):
+                raise ValueError('Several different SEPS prices for {} at {}; cannot choose without product volumes'.format(label, timestamp))
+            return prices[0]
+        up_price = one_price(up_price_cols, up_mwh, "Up price")
+        down_price = one_price(down_price_cols, down_mwh, "Down price")
 
         rows.append(
             {

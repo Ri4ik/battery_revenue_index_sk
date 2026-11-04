@@ -7,6 +7,8 @@ its 'failed' row even though the data transaction was rolled back.
 import hashlib
 import json
 import os
+import datetime as dt
+import stat
 import tempfile
 
 from bri import settings
@@ -47,16 +49,59 @@ def store_artifact(conn, source_code, transport, content, extension, original_na
                 (source_code, digest),
             )
             row = cur.fetchone()
+        cur.execute("""UPDATE source_artifact SET source_metadata=source_metadata || '{"raw_state":"available"}'::jsonb
+                       WHERE artifact_id=%s AND source_metadata->>'raw_state' IN ('purged','purge_pending')""", (row[0],))
     conn.commit()
     return row[0]
 
 
 def read_artifact(conn, artifact_id):
     with conn.cursor() as cur:
-        cur.execute("SELECT raw_archive_path FROM source_artifact WHERE artifact_id = %s", (artifact_id,))
-        rel = cur.fetchone()[0]
+        cur.execute("SELECT raw_archive_path, source_metadata FROM source_artifact WHERE artifact_id = %s", (artifact_id,))
+        rel, metadata = cur.fetchone()
     conn.commit()
+    if metadata.get("raw_state") == "purged" and not (settings.RAW_ARCHIVE_DIR / rel).exists():
+        raise FileNotFoundError("Original artifact {} was intentionally purged after publication; normalized inputs remain in PostgreSQL".format(artifact_id))
     return (settings.RAW_ARCHIVE_DIR / rel).read_bytes()
+
+
+def purge_local_artifact(conn, artifact_id, digest):
+    """Remove only raw originals explicitly owned by local-inbox retention policy.
+
+    Keep the historical archive path and record its lifecycle in existing JSONB metadata.
+    Never purge an existing OneDrive/legacy artifact or a path shared with another artifact.
+    """
+    with conn.cursor() as cur:
+        cur.execute("SELECT raw_archive_path,content_sha256,source_metadata FROM source_artifact WHERE artifact_id=%s",
+                    (artifact_id,))
+        rel, stored_hash, metadata = cur.fetchone()
+        if str(stored_hash).strip() != digest:
+            raise ValueError("Artifact hash does not match the processed file")
+        if metadata.get("local_retention") != "until_published":
+            conn.commit()
+            return "retained_existing"
+        cur.execute("""SELECT EXISTS(SELECT 1 FROM source_artifact WHERE raw_archive_path=%s
+                       AND artifact_id<>%s AND COALESCE(source_metadata->>'raw_state','available')<>'purged')""",
+                    (rel, artifact_id))
+        if cur.fetchone()[0]:
+            conn.commit()
+            return "retained_shared"
+        cur.execute("UPDATE source_artifact SET source_metadata=source_metadata || %s::jsonb WHERE artifact_id=%s",
+                    (json.dumps({"raw_state": "purge_pending"}), artifact_id))
+    conn.commit()
+    root = settings.RAW_ARCHIVE_DIR.resolve()
+    path = root / rel
+    if path.parent != root or path.is_symlink():
+        raise ValueError("Unsafe raw archive path")
+    if path.exists():
+        if not stat.S_ISREG(path.lstat().st_mode) or sha256_bytes(path.read_bytes()) != digest:
+            raise ValueError("Raw archive changed; refusing cleanup")
+        path.unlink()
+    with conn.cursor() as cur:
+        cur.execute("UPDATE source_artifact SET source_metadata=source_metadata || %s::jsonb WHERE artifact_id=%s",
+                    (json.dumps({"raw_state": "purged", "raw_purged_at": dt.datetime.now(dt.timezone.utc).isoformat()}), artifact_id))
+    conn.commit()
+    return "purged"
 
 
 def successful_batch(conn, artifact_id, parser_version):

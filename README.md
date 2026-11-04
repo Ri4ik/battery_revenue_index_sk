@@ -157,6 +157,15 @@ Potom otvorte v prehliadaci: `http://127.0.0.1:5050/`
 
 - Ak graf neukazuje cely rok, vo vybranom priecinku `results/...` nie su data za cely rok. Vyberte iny priecinok alebo najprv dopocitajte chybajuce obdobie.
 
+## Lokalny import SEPS XLSX cez Docker
+
+Worker podporuje priecinok `incoming/`, trvale JSON/TXT reporty a odstranenie suborov az po overenom zverejneni vysledkov. Navod pre Windows a Linux: [deploy/LOCAL_INBOX.md](deploy/LOCAL_INBOX.md).
+
+```powershell
+.\tools\upload_local_input.ps1 -Path "C:\Downloads\seps.xlsx"
+docker compose -p bri-db-pipeline exec worker python -m bri.pipeline --source local
+```
+
 ## Licencia
 
 GNU GPL, pozri `LICENSE`.
