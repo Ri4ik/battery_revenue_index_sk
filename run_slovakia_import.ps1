@@ -1,3 +1,12 @@
+# Legacy file-based import of OKTE CSV exports into marketdata/ (the database pipeline
+# downloads the same data from the OKTE API; see README.md).
+#   .\run_slovakia_import.ps1 -DamFile <Overview_DAM.csv> -Idm15File <IDM 15 min.csv>
+param(
+    [Parameter(Mandatory = $true)][string]$DamFile,
+    [Parameter(Mandatory = $true)][string]$Idm15File,
+    [string]$DateFrom = "2025-03-01",
+    [string]$DateTo = "2026-03-01"
+)
 $ErrorActionPreference = "Stop"
 
 $workspace = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -7,15 +16,12 @@ if (-not (Test-Path $python)) {
     throw "Python not found at $python"
 }
 
-$damFile = "C:/Users/Даниил Бережной/Downloads/Overwiev_DAM_2025-03-01_2026-03-01.csv"
-$idm15File = "C:/Users/Даниил Бережной/Downloads/IDM_overview_2025-03-01_2026-03-01/15 min.csv"
-
 & $python "tools/import_okte_exports.py" `
   --workspace $workspace `
-  --dam-overview $damFile `
-  --idm-15min $idm15File `
-  --date-from "2025-03-01" `
-  --date-to "2026-03-01" `
+  --dam-overview $DamFile `
+  --idm-15min $Idm15File `
+  --date-from $DateFrom `
+  --date-to $DateTo `
   --fetch-system-imbalance `
   --fetch-demand-supply
 

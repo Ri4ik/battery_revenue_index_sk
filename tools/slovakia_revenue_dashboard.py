@@ -182,7 +182,8 @@ def build_figure(
     else:
         y_title = "Denný výnos (EUR/deň)"
 
-    total = pivot.sum(axis=1)
+    # a day without any market value stays a gap instead of being drawn as 0
+    total = pivot.sum(axis=1, min_count=1)
 
     fig = go.Figure()
     if mode == "stack":

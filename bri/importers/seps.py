@@ -150,9 +150,11 @@ def inspect_local_xlsx(content, original_name="upload.xlsx"):
     # exactly the same aFRR+mFRR quantities under 12.3.E [MW]. Validate that identity
     # on EVERY interval before interpreting the new export as average MW.
     if 'Spolu' in book and 'mFRR' in book and book['Spolu'].shape[1] >= 8 and book['mFRR'].shape[1] >= 7:
-        aggregate_headers = ' '.join(str(v) for v in book['Spolu'].iloc[:first].values.ravel() if pd.notna(v))
+        # header rows of Spolu are found on Spolu itself, not taken from the aFRR sheet
+        aggregate, first_aggregate = _volume_records(book['Spolu'], (6, 7))
+        aggregate_headers = ' '.join(str(v) for v in book['Spolu'].iloc[:first_aggregate].values.ravel()
+                                     if pd.notna(v))
         if re.search(r'12\.3\.E\s*\[MW\]', aggregate_headers, re.I):
-            aggregate, _ = _volume_records(book['Spolu'], (6, 7))
             mfrr, _ = _volume_records(book['mFRR'], (3, 4, 5, 6))
             if set(aggregate) != set(records) or set(mfrr) != set(records):
                 raise FormatError("Cannot align SEPS unit cross-check worksheets")

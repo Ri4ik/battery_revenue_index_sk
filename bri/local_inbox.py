@@ -17,7 +17,9 @@ import pandas as pd
 from bri import MODEL_VERSION, artifacts, settings
 from bri.importers import seps, entsoe_energy
 
-FINAL = ("completed", "rejected")
+FINAL = ("completed", "rejected", "abandoned")
+# Statuses that must survive an error so the interrupted step is resumed next time.
+RESUMABLE = ("claim_pending", "keep_pending")
 ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 
 
@@ -47,7 +49,9 @@ class LocalInboxRun:
         self.processing = self.inbox / ".processing"
         self.state_dir = self.reports / ".state"
         self.errors = self.inbox / "errors"
-        for p in (self.inbox, self.reports, self.processing, self.state_dir, self.errors):
+        # kept inputs leave the scanned top level, otherwise every run would claim them again
+        self.kept = self.inbox / "processed"
+        for p in (self.inbox, self.reports, self.processing, self.state_dir, self.errors, self.kept):
             if p.is_symlink():
                 raise ValueError("Inbox runtime directories must not be symlinks")
             p.mkdir(parents=True, exist_ok=True)
@@ -122,7 +126,7 @@ class LocalInboxRun:
             try:
                 if entry["status"] == "keep_pending" and not work.exists():
                     target = Path(entry["kept_file"])
-                    if target.parent != self.inbox or not _regular(target) or artifacts.sha256_bytes(target.read_bytes()) != entry["sha256"]:
+                    if target.parent != self.kept or not _regular(target) or artifacts.sha256_bytes(target.read_bytes()) != entry["sha256"]:
                         raise ValueError("Kept file could not be verified after interruption")
                     entry["status"] = "completed"
                     self._save(entry)
@@ -138,6 +142,12 @@ class LocalInboxRun:
                 if not work.exists() and entry["status"] == "cleanup_pending":
                     # A crash after unlink but before the final report/journal commit.
                     touched.update(pd.Timestamp(d).date() for d in entry["days"])
+                    continue
+                if not work.exists() and not work.is_symlink():
+                    # The claimed input is gone (e.g. removed by hand): close the entry once
+                    # instead of failing on every following run.
+                    entry["status"], entry["error"] = "abandoned", "claimed input file no longer exists"
+                    self._save(entry)
                     continue
                 if not _regular(work):
                     raise ValueError("Claimed input must be a regular file")
@@ -198,7 +208,9 @@ class LocalInboxRun:
                 self._save(entry)
             except Exception as exc:
                 self.conn.rollback()
-                entry["status"], entry["error"] = "failed", str(exc)
+                if entry["status"] not in RESUMABLE:
+                    entry["status"] = "failed"
+                entry["error"] = str(exc)
                 self._save(entry)
         self.write_report("imported", [])
         return touched
@@ -229,11 +241,11 @@ class LocalInboxRun:
 
     def _restore_kept(self, entry):
         work = self._work_path(entry)
-        # Never overwrite a newly uploaded file with the original filename.
+        # Never overwrite an earlier kept file with the same name.
         name = Path(entry["original_name"]).name
-        target = self.inbox / name
+        target = self.kept / name
         if target.exists() or target.is_symlink():
-            target = self.inbox / (entry["entry_id"] + "_" + name)
+            target = self.kept / (entry["entry_id"] + "_" + name)
         entry["kept_file"] = str(target)
         self._save(entry)
         os.replace(str(work), str(target))

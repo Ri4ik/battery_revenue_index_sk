@@ -44,3 +44,6 @@ secrets/
 raw/
 tools/bin/
 docker-compose.override.yml
+
+# internal documents (Russian / review notes), kept locally only
+internal_docs/

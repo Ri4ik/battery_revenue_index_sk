@@ -96,7 +96,8 @@ def test_keep_mode_and_corrected_same_filename_create_new_revision(conn, local_d
     source = inbox / "june.xlsx"
     source.write_bytes(seps_xlsx(DAY, up_price=100.0))
     assert _run(delete=False) == 0
-    assert source.exists() and not _report(reports)["files"][0]["input_deleted"]
+    assert not source.exists() and (inbox / "processed" / "june.xlsx").exists()
+    assert not _report(reports)["files"][0]["input_deleted"]
     source.write_bytes(seps_xlsx(DAY, up_price=120.0))
     assert _run() == 0
     assert _count(conn, "afrr_energy") == 192
@@ -105,6 +106,27 @@ def test_keep_mode_and_corrected_same_filename_create_new_revision(conn, local_d
         cur.execute("SELECT DISTINCT up_price_eur_mwh FROM afrr_energy_current")
         assert [float(row[0]) for row in cur.fetchall()] == [120.0]
     conn.commit()
+
+
+def test_kept_file_is_not_claimed_again_by_the_next_run(conn, local_dirs):
+    inbox, reports = local_dirs
+    _capacity(conn)
+    (inbox / "june.xlsx").write_bytes(seps_xlsx(DAY))
+    assert _run(delete=False) == 0
+    batches = _count(conn, "import_batch")
+    assert _run(delete=False) == 0
+    assert _report(reports)["files"] == []
+    assert _count(conn, "import_batch") == batches
+
+
+def test_lost_claimed_input_is_closed_once(conn, local_dirs):
+    inbox, reports = local_dirs
+    run = local_inbox.LocalInboxRun(conn, 0, False)
+    run._save({"entry_id": "b" * 32, "original_name": "gone.xlsx", "status": "claimed",
+               "delete_requested": False, "rows_written": 0})
+    assert _run(delete=False) == 1
+    assert _report(reports)["files"][0]["status"] == "abandoned"
+    assert _run(delete=False) == 0  # final: not loaded again
 
 
 def test_missing_capacity_keeps_original_then_resumes_without_reimport(conn, local_dirs):
