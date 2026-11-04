@@ -137,8 +137,8 @@ docker compose up -d                       # worker + dashboard
 `migrate` (opakovateľne, bez duplicít):
 
 1. vytvorí schému a štyri konfigurácie batérie;
-2. naimportuje pôvodné súbory z repozitára (CSV kapacity aFRR, pôvodné XLSX SEPS, výsledky JSON ako
-   beh `legacy-json-v1`);
+2. naimportuje vstupné súbory z `marketdata/` (CSV kapacity aFRR, pôvodné XLSX SEPS) a ak sú v `results/`,
+   aj výsledky JSON pôvodnej súborovej verzie ako beh `legacy-json-v1`;
 3. znovu stiahne DA, IDM15, IDM60 a IMB z API OKTE s pôvodnými intervalmi, skontroluje úplnosť a prepočíta
    všetky dni aktuálnym modelom; tieto výsledky nahradia pôvodné všade, kde sú vstupy úplné.
 

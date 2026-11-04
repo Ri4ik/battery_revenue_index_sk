@@ -137,8 +137,8 @@ docker compose up -d                       # worker + dashboard
 `migrate` does, idempotently:
 
 1. creates the schema and the four battery configurations;
-2. imports the legacy files shipped in the repository (aFRR capacity CSV, original SEPS XLSX, JSON results
-   as calculation run `legacy-json-v1`);
+2. imports the input files shipped in `marketdata/` (aFRR capacity CSV, original SEPS XLSX) and, if present
+   in `results/`, the JSON results of the former file-based version as calculation run `legacy-json-v1`;
 3. downloads DA, IDM15, IDM60 and IMB again from the OKTE API with their native intervals, checks
    completeness and calculates all days with the current model; these results replace the legacy ones
    wherever inputs are complete.
