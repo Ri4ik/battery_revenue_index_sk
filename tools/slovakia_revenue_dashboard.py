@@ -387,6 +387,7 @@ PAGE = """
       Slovenská verzia dashboardu s dátami z {% if use_db %}databázy{% else %}<code>results/</code>{% endif %}.
       Inšpirácia dizajnom:
       <a href="https://battery-charts.de/revenue-index/#daily-revenues">battery-charts.de</a>.
+      {% if use_db %}<br><a href="/kalkulacka"><strong>Kalkulačka batérie pre investorov →</strong></a>{% endif %}
     </p>
 
     <section class="card controls">
@@ -513,7 +514,7 @@ PAGE = """
     {% endif %}
     <footer>
       <p>GNU GPL v3.
-      <a href="{{ url_for_about }}">O projekte, autori a zdroje</a> · <a href="/license">Licencia</a></p>
+      {% if use_db %}<a href="/kalkulacka">Kalkulačka batérie</a> · {% endif %}<a href="{{ url_for_about }}">O projekte, autori a zdroje</a> · <a href="/license">Licencia</a></p>
     </footer>
   </div>
 </body>
@@ -531,6 +532,11 @@ def create_app(repo: Path) -> Flask:
 
     engine = results_db.get_engine() if results_db.database_url() else None
     use_db = engine is not None
+
+    if use_db:  # Battery Calculator (/kalkulacka) needs the normalized database
+        from tools.battery_calculator_web import bp as calculator_bp
+
+        app.register_blueprint(calculator_bp)
 
     @app.route("/about")
     def about():

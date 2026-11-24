@@ -69,7 +69,10 @@ def test_real_file_flow_publishes_and_cleans_after_report(conn, local_dirs):
     with pytest.raises(FileNotFoundError, match="intentionally purged"):
         artifacts.read_artifact(conn, entry["artifact_id"])
     with conn.cursor() as cur:
-        cur.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema='bri' AND table_type='BASE TABLE'")
+        # pipeline tables only (the Battery Calculator tables come from 002_calculator.sql)
+        cur.execute("""SELECT count(*) FROM information_schema.tables WHERE table_schema='bri'
+                       AND table_type='BASE TABLE' AND table_name NOT IN
+                       ('calc_scenario', 'scenario_revenue_cache', 'scenario_daily', 'scenario_year')""")
         assert cur.fetchone()[0] == 23
     conn.commit()
 

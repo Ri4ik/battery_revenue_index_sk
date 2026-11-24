@@ -220,6 +220,32 @@ The worker runs `python -m bri.pipeline --trigger cron` every day at **16:00 Eur
 Each run downloads DA/IDM for incomplete and recent days, IMB until the final evaluation is published,
 aFRR capacity from ENTSO-E, imports new SEPS files, recalculates changed days and publishes them.
 
+### 7.1 Battery Calculator (`/kalkulacka`)
+
+Investor tool at <http://localhost:5050/kalkulacka> (link on the dashboard). The user sets the battery
+(power, duration, cycles, efficiency, SoC range), degradation (calendar % per year, cycle % per 100 EFC,
+end-of-life SoH, cell replacement), the market strategy (one market or the best market of each day as an
+upper bound), the historical price period, costs (CAPEX per kWh / kW / fixed, OPEX, aggregator and grid
+fees), financing (equity or annuity loan) and tax. Output: cash flows year by year, NPV, IRR (project and
+equity), simple and discounted payback, LCOS, DSCR, SoH per year, revenue by market, sensitivity (tornado)
+and CSV export. Methodology: `/kalkulacka/metodika`.
+
+* Revenues come from the same models as the index (`bri/models.py`) on the prices in the database, for a
+  1 MW battery with the chosen duration, scaled by the power. The trading threshold equals the index, so the
+  four index configurations give the published values.
+* Each scenario is computed in its own process (`python -m bri.calculator run <id>`); at most
+  `BRI_CALC_MAX_RUNNING` (default 2) run at the same time, `BRI_CALC_WORKERS` sets the CPU processes.
+  A new battery takes about 10 s per market and year, repeated batteries are served from
+  `scenario_revenue_cache`.
+* Scenarios live in `calc_scenario`, `scenario_daily`, `scenario_year` (`bri/sql/002_calculator.sql`) and
+  never change the published index.
+* Default costs, degradation, fees and tax are orientation values, not verified data.
+
+| Task | Command |
+|---|---|
+| Scenario from the command line | `docker compose exec worker python -m bri.calculator new power_mw=2 duration_h=2 strategy=BEST` |
+| Precompute the cache | `docker compose exec worker python -m bri.calculator warm --durations 1,2,4 --cycles 1,2` |
+
 ---
 
 ## 8. Tests
@@ -315,9 +341,11 @@ intentionally have no foreign keys.
 | `bri/importers/` | OKTE, ENTSO-E (capacity, activation prices), SEPS/Damas |
 | `bri/local_inbox.py`, `bri/onedrive.py` | file sources |
 | `bri/readiness.py`, `bri/models.py`, `bri/calc.py` | completeness, revenue models, runs and publication |
+| `bri/calculator/`, `bri/sql/002_calculator.sql` | Battery Calculator: parameters, revenue simulation, finance, scenarios |
 | `bri/migrate.py`, `bri/legacy.py` | one-off import of the legacy file data |
 | `markets/`, `analysismodes/` | market models of the original index |
 | `tools/slovakia_revenue_dashboard.py` | dashboard |
+| `tools/battery_calculator_web.py` | calculator pages (`/kalkulacka`) |
 | `tools/upload_local_input.ps1` | safe copy of a SEPS file into the local inbox |
 | `docker-compose.yml`, `Dockerfile`, `docker/crontab` | containers and schedule |
 | `tests/` | automated tests and recorded API responses |

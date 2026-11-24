@@ -220,6 +220,31 @@ Worker spúšťa `python -m bri.pipeline --trigger cron` každý deň o **16:00 
 Každý beh stiahne DA/IDM pre neúplné a posledné dni, IMB kým nie je zverejnené hodnotenie final, kapacitu
 aFRR z ENTSO-E, naimportuje nové súbory SEPS, prepočíta zmenené dni a zverejní ich.
 
+### 7.1 Kalkulačka batérie (`/kalkulacka`)
+
+Nástroj pre investora na <http://localhost:5050/kalkulacka> (odkaz je na dashboarde). Používateľ nastaví
+batériu (výkon, dobu vybíjania, cykly, účinnosť, rozsah SoC), degradáciu (kalendárna % za rok, cyklická %
+na 100 EFC, SoH na konci životnosti, výmena článkov), stratégiu trhu (jeden trh alebo najlepší trh v každom
+dni ako horná hranica), obdobie historických cien, náklady (CAPEX za kWh / kW / fixné, OPEX, poplatky
+agregátorovi a za sieť), financovanie (vlastné zdroje alebo anuitný úver) a daň. Výstup: peňažné toky po
+rokoch, NPV, IRR (projekt a vlastník), jednoduchá a diskontovaná doba návratnosti, LCOS, DSCR, SoH po rokoch,
+výnosy podľa trhov, citlivostná analýza (tornado) a export CSV. Metodika: `/kalkulacka/metodika`.
+
+* Výnosy sa počítajú tými istými modelmi ako index (`bri/models.py`) nad cenami v databáze pre batériu
+  1 MW so zvolenou dobou vybíjania a násobia sa výkonom. Prah obchodovania je rovnaký ako v indexe, takže
+  štyri konfigurácie indexu dávajú zverejnené hodnoty.
+* Každý scenár sa počíta vo vlastnom procese (`python -m bri.calculator run <id>`); súčasne bežia najviac
+  `BRI_CALC_MAX_RUNNING` (predvolene 2), `BRI_CALC_WORKERS` určuje počet procesov CPU. Nová batéria trvá
+  približne 10 s na trh a rok, opakované batérie sa berú z `scenario_revenue_cache`.
+* Scenáre sú v tabuľkách `calc_scenario`, `scenario_daily`, `scenario_year` (`bri/sql/002_calculator.sql`)
+  a zverejnený index nikdy nemenia.
+* Predvolené náklady, degradácia, poplatky a daň sú orientačné hodnoty, nie overené údaje.
+
+| Úloha | Príkaz |
+|---|---|
+| Scenár z príkazového riadku | `docker compose exec worker python -m bri.calculator new power_mw=2 duration_h=2 strategy=BEST` |
+| Predpočítanie cache | `docker compose exec worker python -m bri.calculator warm --durations 1,2,4 --cycles 1,2` |
+
 ---
 
 ## 8. Testy
@@ -315,9 +340,11 @@ cudzie kľúče.
 | `bri/importers/` | OKTE, ENTSO-E (kapacita, ceny aktivácie), SEPS/Damas |
 | `bri/local_inbox.py`, `bri/onedrive.py` | zdroje súborov |
 | `bri/readiness.py`, `bri/models.py`, `bri/calc.py` | úplnosť dní, modely výnosov, behy a zverejnenie |
+| `bri/calculator/`, `bri/sql/002_calculator.sql` | kalkulačka batérie: parametre, simulácia výnosov, financie, scenáre |
 | `bri/migrate.py`, `bri/legacy.py` | jednorazový import pôvodných súborových dát |
 | `markets/`, `analysismodes/` | trhové modely pôvodného indexu |
 | `tools/slovakia_revenue_dashboard.py` | dashboard |
+| `tools/battery_calculator_web.py` | stránky kalkulačky (`/kalkulacka`) |
 | `tools/upload_local_input.ps1` | bezpečné kopírovanie súboru SEPS do lokálneho priečinka |
 | `docker-compose.yml`, `Dockerfile`, `docker/crontab` | kontajnery a plán |
 | `tests/` | automatické testy a uložené odpovede API |
